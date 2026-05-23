@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    
+    <!-- NuGet Metadata -->
+    <PackageId>HyperJet</PackageId>
+    <Version>1.0.0</Version>
+    <Description>A highly efficient, modern C# library for Automatic Differentiation (AD) of first and second order, optimized for .NET 10 with SIMD, source generators, and zero-allocation structures.</Description>
+    <PackageLicenseExpression>ISC</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>automatic-differentiation dual-numbers math derivatives gradient hessian ad simd arm-neon zero-allocation</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/thomas/hyperjet-net</RepositoryUrl>
+
+    <!-- SourceLink and debugging support -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- XML IntelliSense documentation generation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Deterministic builds for CI -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HyperJet.Generators/HyperJet.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+    <None Include="build/HyperJet.targets" Pack="true" PackagePath="build/;buildTransitive/" />
+  </ItemGroup>
+
+  <!-- SourceLink package reference -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all"/>
+  </ItemGroup>
+
+</Project>

@@ -1,50 +1,25 @@
-name: .NET
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-  release:
-    types:
-    - published
+    branches: [main]
 
 jobs:
-  build:
-
-    runs-on: windows-latest
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v2
-      with:
-        dotnet-version: 6.0.x
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build
-      run: dotnet build --no-restore
-
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
-
-    - name: Pack
-      run: |
-        if ($env:TAG_NAME -ne "") {
-          $Version = $([Regex]::Matches($env:TAG_NAME, "v(\d+(?:\.\d+)+(?:-\w+)?)").groups | Where-Object Name -eq 1).value
-        } else {
-          $Version = "0.0.0"
-        }
-        Write-Output "Version: $Version"
-        dotnet pack -c Release -p:PackageVersion=$Version -p:Version=$Version
-      env:
-        TAG_NAME: ${{ github.event.release.tag_name }}
-
-    - name: Publish
-      run: |
-        dotnet nuget push ".\HyperJet\bin\Release\*.nupkg" --api-key ${{ secrets.NUGET_TOKEN }} --source https://api.nuget.org/v3/index.json
-      if: github.event_name == 'release' && github.event.action == 'published'
+      - run: dotnet restore
+      - run: dotnet build --no-restore
+      - run: dotnet test --no-build

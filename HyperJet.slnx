@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HyperJet.Benchmark/HyperJet.Benchmark.csproj" />
+    <Project Path="src/HyperJet/HyperJet.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/HyperJet.Tests/HyperJet.Tests.csproj" />
+  </Folder>
+</Solution>

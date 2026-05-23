@@ -1,0 +1,20 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Condition="'$(ImplicitUsings)' == 'enable' or '$(ImplicitUsings)' == 'true'">
+    <Using Include="HyperJet" />
+    <Using Include="HyperJet.DDScalar1&lt;System.Double&gt;" Alias="DDScalar1" />
+    <Using Include="HyperJet.DDScalar2&lt;System.Double&gt;" Alias="DDScalar2" />
+    <Using Include="HyperJet.DDScalar3&lt;System.Double&gt;" Alias="DDScalar3" />
+    <Using Include="HyperJet.DDScalar4&lt;System.Double&gt;" Alias="DDScalar4" />
+    <Using Include="HyperJet.DDScalar5&lt;System.Double&gt;" Alias="DDScalar5" />
+    <Using Include="HyperJet.DDScalar6&lt;System.Double&gt;" Alias="DDScalar6" />
+    <Using Include="HyperJet.DDScalar7&lt;System.Double&gt;" Alias="DDScalar7" />
+    <Using Include="HyperJet.DDScalar8&lt;System.Double&gt;" Alias="DDScalar8" />
+    <Using Include="HyperJet.DDScalar9&lt;System.Double&gt;" Alias="DDScalar9" />
+    <Using Include="HyperJet.DDScalar10&lt;System.Double&gt;" Alias="DDScalar10" />
+    <Using Include="HyperJet.DDScalar11&lt;System.Double&gt;" Alias="DDScalar11" />
+    <Using Include="HyperJet.DDScalar12&lt;System.Double&gt;" Alias="DDScalar12" />
+    <Using Include="HyperJet.DDScalar13&lt;System.Double&gt;" Alias="DDScalar13" />
+    <Using Include="HyperJet.DDScalar14&lt;System.Double&gt;" Alias="DDScalar14" />
+    <Using Include="HyperJet.DDScalar15&lt;System.Double&gt;" Alias="DDScalar15" />
+  </ItemGroup>
+</Project>
