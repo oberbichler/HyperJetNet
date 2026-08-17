@@ -36,14 +36,20 @@ namespace HyperJet
 
         #region Double Overloads (Backward Compatibility)
 
+        /// <summary>
+        /// Extracts the scalar factor of a coefficient so it can be broadcast into a SIMD vector.
+        /// <para>
+        /// Coefficients are linear (<c>Multiply(v) == c * v</c>), so the factor is simply
+        /// <c>Multiply(1.0)</c>. Deriving it from the coefficient itself — rather than from a
+        /// hard-coded table of the known tag types — keeps the vectorized path and the scalar
+        /// remainder loop in agreement for <em>every</em> <see cref="ICoeff"/> implementation.
+        /// For the built-in tags the call inlines to a constant, so no codegen is lost.
+        /// </para>
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static double GetCoeffValue<TCoeff>(in TCoeff coeff) where TCoeff : struct, ICoeff
         {
-            if (typeof(TCoeff) == typeof(ZeroCoeff)) return 0.0;
-            if (typeof(TCoeff) == typeof(OneCoeff)) return 1.0;
-            if (typeof(TCoeff) == typeof(MinusOneCoeff)) return -1.0;
-            if (typeof(TCoeff) == typeof(ValueCoeff)) return Unsafe.As<TCoeff, ValueCoeff>(ref Unsafe.AsRef(in coeff)).Value;
-            return 0.0;
+            return coeff.Multiply(1.0);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -61,12 +67,24 @@ namespace HyperJet
         {
             r[0] = f;
 
-            if (order < 1 || typeof(TDa) == typeof(ZeroCoeff))
+            if (order < 1)
             {
                 return;
             }
 
             int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+
+            if (typeof(TDa) == typeof(ZeroCoeff))
+            {
+                // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                if (typeof(TIncrement) != typeof(TrueTag))
+                {
+                    r.Slice(1, n - 1).Clear();
+                }
+
+                PropagateSecondOrder<TDaa>(a, daa, r, size, order);
+                return;
+            }
 
             double daVal = GetCoeffValue(da);
             int i = 1;
@@ -149,6 +167,23 @@ namespace HyperJet
                 }
             }
 
+            PropagateSecondOrder<TDaa>(a, daa, r, size, order);
+        }
+
+        /// <summary>
+        /// Adds the second-order chain-rule contribution <c>daa * grad(a) grad(a)^T</c> to the
+        /// Hessian block. This term is independent of the first-derivative coefficient, so it must
+        /// run even when the first derivative vanishes.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void PropagateSecondOrder<TDaa>(
+            ReadOnlySpan<double> a,
+            TDaa daa,
+            Span<double> r,
+            int size,
+            int order)
+            where TDaa : struct, ICoeff
+        {
             if (order < 2 || typeof(TDaa) == typeof(ZeroCoeff))
             {
                 return;
@@ -192,7 +227,16 @@ namespace HyperJet
                 bool isDaZero = typeof(TDa) == typeof(ZeroCoeff);
                 bool isDbZero = typeof(TDb) == typeof(ZeroCoeff);
 
-                if (!isDaZero || !isDbZero)
+                if (isDaZero && isDbZero)
+                {
+                    // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                    if (typeof(TIncrement) != typeof(TrueTag))
+                    {
+                        int cleared = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+                        r.Slice(1, cleared - 1).Clear();
+                    }
+                }
+                else
                 {
                     int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
                     double daVal = GetCoeffValue(da);
@@ -350,7 +394,16 @@ namespace HyperJet
                 bool isDbZero = typeof(TDb) == typeof(ZeroCoeff);
                 bool isDcZero = typeof(TDc) == typeof(ZeroCoeff);
 
-                if (!isDaZero || !isDbZero || !isDcZero)
+                if (isDaZero && isDbZero && isDcZero)
+                {
+                    // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                    if (typeof(TIncrement) != typeof(TrueTag))
+                    {
+                        int cleared = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+                        r.Slice(1, cleared - 1).Clear();
+                    }
+                }
+                else
                 {
                     int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
                     double daVal = GetCoeffValue(da);
@@ -506,27 +559,38 @@ namespace HyperJet
         {
             r[0] = f;
 
-            if (order < 1 || (typeof(TDa).IsGenericType && typeof(TDa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>)))
+            if (order < 1)
             {
                 return;
             }
 
             int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
 
-            for (int i = 1; i < n; i++)
+            if (IsZeroCoeff<TDa>())
             {
-                T term = da.Multiply(a[i]);
-                if (typeof(TIncrement) == typeof(TrueTag))
+                // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                if (typeof(TIncrement) != typeof(TrueTag))
                 {
-                    r[i] += term;
+                    for (int i = 1; i < n; i++) r[i] = T.Zero;
                 }
-                else
+            }
+            else
+            {
+                for (int i = 1; i < n; i++)
                 {
-                    r[i] = term;
+                    T term = da.Multiply(a[i]);
+                    if (typeof(TIncrement) == typeof(TrueTag))
+                    {
+                        r[i] += term;
+                    }
+                    else
+                    {
+                        r[i] = term;
+                    }
                 }
             }
 
-            if (order < 2 || (typeof(TDaa).IsGenericType && typeof(TDaa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>)))
+            if (order < 2 || IsZeroCoeff<TDaa>())
             {
                 return;
             }
@@ -541,6 +605,11 @@ namespace HyperJet
                 }
             }
         }
+
+        /// <summary>Whether <typeparamref name="TCoeff"/> is the generic zero tag.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsZeroCoeff<TCoeff>() =>
+            typeof(TCoeff).IsGenericType && typeof(TCoeff).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Binary<T, TIncrement, TDa, TDb, TDaa, TDab, TDbb>(
@@ -567,12 +636,18 @@ namespace HyperJet
 
             if (order >= 1)
             {
-                bool isDaZero = typeof(TDa).IsGenericType && typeof(TDa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDbZero = typeof(TDb).IsGenericType && typeof(TDb).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
+                int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
 
-                if (!isDaZero || !isDbZero)
+                if (IsZeroCoeff<TDa>() && IsZeroCoeff<TDb>())
                 {
-                    int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+                    // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                    if (typeof(TIncrement) != typeof(TrueTag))
+                    {
+                        for (int i = 1; i < n; i++) r[i] = T.Zero;
+                    }
+                }
+                else
+                {
                     for (int i = 1; i < n; i++)
                     {
                         T term = da.Multiply(a[i]) + db.Multiply(b[i]);
@@ -590,9 +665,9 @@ namespace HyperJet
 
             if (order >= 2)
             {
-                bool isDaaZero = typeof(TDaa).IsGenericType && typeof(TDaa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDabZero = typeof(TDab).IsGenericType && typeof(TDab).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDbbZero = typeof(TDbb).IsGenericType && typeof(TDbb).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
+                bool isDaaZero = IsZeroCoeff<TDaa>();
+                bool isDabZero = IsZeroCoeff<TDab>();
+                bool isDbbZero = IsZeroCoeff<TDbb>();
 
                 if (!isDaaZero || !isDabZero || !isDbbZero)
                 {
@@ -647,13 +722,18 @@ namespace HyperJet
 
             if (order >= 1)
             {
-                bool isDaZero = typeof(TDa).IsGenericType && typeof(TDa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDbZero = typeof(TDb).IsGenericType && typeof(TDb).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDcZero = typeof(TDc).IsGenericType && typeof(TDc).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
+                int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
 
-                if (!isDaZero || !isDbZero || !isDcZero)
+                if (IsZeroCoeff<TDa>() && IsZeroCoeff<TDb>() && IsZeroCoeff<TDc>())
                 {
-                    int n = order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+                    // Nothing to propagate, but in assign mode the kernel still owns every slot.
+                    if (typeof(TIncrement) != typeof(TrueTag))
+                    {
+                        for (int i = 1; i < n; i++) r[i] = T.Zero;
+                    }
+                }
+                else
+                {
                     for (int i = 1; i < n; i++)
                     {
                         T term = da.Multiply(a[i]) + db.Multiply(b[i]) + dc.Multiply(c[i]);
@@ -671,12 +751,12 @@ namespace HyperJet
 
             if (order >= 2)
             {
-                bool isDaaZero = typeof(TDaa).IsGenericType && typeof(TDaa).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDabZero = typeof(TDab).IsGenericType && typeof(TDab).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDacZero = typeof(TDac).IsGenericType && typeof(TDac).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDbbZero = typeof(TDbb).IsGenericType && typeof(TDbb).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDbcZero = typeof(TDbc).IsGenericType && typeof(TDbc).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
-                bool isDccZero = typeof(TDcc).IsGenericType && typeof(TDcc).GetGenericTypeDefinition() == typeof(ZeroCoeff<>);
+                bool isDaaZero = IsZeroCoeff<TDaa>();
+                bool isDabZero = IsZeroCoeff<TDab>();
+                bool isDacZero = IsZeroCoeff<TDac>();
+                bool isDbbZero = IsZeroCoeff<TDbb>();
+                bool isDbcZero = IsZeroCoeff<TDbc>();
+                bool isDccZero = IsZeroCoeff<TDcc>();
 
                 if (!isDaaZero || !isDabZero || !isDacZero || !isDbbZero || !isDbcZero || !isDccZero)
                 {

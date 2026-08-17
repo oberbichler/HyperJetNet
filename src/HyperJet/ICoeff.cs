@@ -7,9 +7,15 @@ namespace HyperJet
     /// Represents a coefficient multiplier used in derivative propagation.
     /// This allows the JIT compiler to optimize multiplication operations (e.g., eliminating multiplications by zero or one).
     /// </summary>
+    /// <remarks>
+    /// Implementations must be linear: <c>Multiply(v)</c> has to equal <c>c * v</c> for a fixed factor
+    /// <c>c</c>, independent of <c>v</c>. The kernels rely on this — they obtain the factor
+    /// as <c>Multiply(1.0)</c> in order to broadcast it into a SIMD vector, and fall back to
+    /// <c>Multiply(val)</c> element-wise in the scalar remainder loop. A non-linear implementation would
+    /// make those two paths disagree.
+    /// </remarks>
     public interface ICoeff
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         double Multiply(double val);
     }
 
@@ -60,9 +66,12 @@ namespace HyperJet
     /// <summary>
     /// Represents a generic coefficient multiplier.
     /// </summary>
+    /// <remarks>
+    /// As with <see cref="ICoeff"/>, implementations must be linear: <c>Multiply(v)</c> has to equal
+    /// <c>c * v</c> for a fixed factor <c>c</c>, independent of <c>v</c>.
+    /// </remarks>
     public interface ICoeff<T> where T : IFloatingPoint<T>
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         T Multiply(T val);
     }
 

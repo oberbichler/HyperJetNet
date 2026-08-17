@@ -168,6 +168,26 @@ namespace HyperJet
             {
                 throw new InvalidOperationException("Incompatible destination DDScalarSpan.");
             }
+
+            if (dest._data.Overlaps(a._data)) ThrowOverlap();
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void CheckDestination(in DDScalarSpan a, in DDScalarSpan b, in DDScalarSpan dest)
+        {
+            CheckDestination(a, dest);
+
+            if (dest._data.Overlaps(b._data)) ThrowOverlap();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+        private static void ThrowOverlap()
+        {
+            throw new ArgumentException(
+                "The destination must not overlap an operand. The kernels read the operands while " +
+                "writing the destination, so evaluating in place would corrupt the derivatives.",
+                "destination");
         }
 
         #endregion
@@ -186,7 +206,7 @@ namespace HyperJet
         public readonly void Add(in DDScalarSpan other, DDScalarSpan destination)
         {
             CheckCompatibility(this, other);
-            CheckDestination(this, destination);
+            CheckDestination(this, other, destination);
             Kernel.Binary<FalseTag, OneCoeff, OneCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
                 AsReadOnlySpan(), other.AsReadOnlySpan(), Value + other.Value,
                 default, default, default, default, default,
@@ -203,7 +223,7 @@ namespace HyperJet
         public readonly void Subtract(in DDScalarSpan other, DDScalarSpan destination)
         {
             CheckCompatibility(this, other);
-            CheckDestination(this, destination);
+            CheckDestination(this, other, destination);
             Kernel.Binary<FalseTag, OneCoeff, MinusOneCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
                 AsReadOnlySpan(), other.AsReadOnlySpan(), Value - other.Value,
                 default, default, default, default, default,
@@ -228,7 +248,7 @@ namespace HyperJet
         public readonly void Multiply(in DDScalarSpan other, DDScalarSpan destination)
         {
             CheckCompatibility(this, other);
-            CheckDestination(this, destination);
+            CheckDestination(this, other, destination);
             Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ZeroCoeff, OneCoeff, ZeroCoeff>(
                 AsReadOnlySpan(), other.AsReadOnlySpan(), Value * other.Value,
                 new ValueCoeff(other.Value), new ValueCoeff(Value), default, default, default,
@@ -246,7 +266,7 @@ namespace HyperJet
         public readonly void Divide(in DDScalarSpan other, DDScalarSpan destination)
         {
             CheckCompatibility(this, other);
-            CheckDestination(this, destination);
+            CheckDestination(this, other, destination);
             double tmp = 1.0 / other.Value;
             double f = Value * tmp;
             double da = tmp;
@@ -353,7 +373,7 @@ namespace HyperJet
         public readonly void Atan2(in DDScalarSpan x, DDScalarSpan destination)
         {
             CheckCompatibility(this, x);
-            CheckDestination(this, destination);
+            CheckDestination(this, x, destination);
             double tmp = Value * Value + x.Value * x.Value;
             double f = Math.Atan2(Value, x.Value);
             double da = x.Value / tmp;
@@ -449,7 +469,7 @@ namespace HyperJet
         public readonly void Hypot(in DDScalarSpan b, DDScalarSpan destination)
         {
             CheckCompatibility(this, b);
-            CheckDestination(this, destination);
+            CheckDestination(this, b, destination);
             double f = Math.Sqrt(Value * Value + b.Value * b.Value);
             double f3 = f * f * f;
             double da = Value / f;
@@ -507,6 +527,248 @@ namespace HyperJet
             Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
                 AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
                 destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void SinPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Sin(Math.PI * Value);
+            double da = Math.PI * Math.Cos(Math.PI * Value);
+            double daa = -Math.PI * Math.PI * f;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void CosPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Cos(Math.PI * Value);
+            double da = -Math.PI * Math.Sin(Math.PI * Value);
+            double daa = -Math.PI * Math.PI * f;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void TanPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Tan(Math.PI * Value);
+            double da = Math.PI * (f * f + 1.0);
+            double daa = 2.0 * Math.PI * f * da;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void AsinPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Asin(Value) / Math.PI;
+            double tmp = 1.0 - Value * Value;
+            double da = 1.0 / (Math.PI * Math.Sqrt(tmp));
+            double daa = Value * da / tmp;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void AcosPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Acos(Value) / Math.PI;
+            double tmp = 1.0 - Value * Value;
+            double da = -1.0 / (Math.PI * Math.Sqrt(tmp));
+            double daa = Value * da / tmp;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void AtanPi(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Atan(Value) / Math.PI;
+            double da = 1.0 / (Math.PI * (Value * Value + 1.0));
+            double daa = -2.0 * Value * Math.PI * da * da;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void Exp2(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = double.Exp2(Value);
+            double ln2 = Math.Log(2.0);
+            double da = f * ln2;
+            double daa = da * ln2;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void Exp10(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = double.Exp10(Value);
+            double ln10 = Math.Log(10.0);
+            double da = f * ln10;
+            double daa = da * ln10;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void ExpM1(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = double.ExpM1(Value);
+            double da = f + 1.0;
+            double daa = da;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void LogP1(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = double.LogP1(Value);
+            double da = 1.0 / (Value + 1.0);
+            double daa = -da * da;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void Asinh(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Asinh(Value);
+            double tmp = Value * Value + 1.0;
+            double da = 1.0 / Math.Sqrt(tmp);
+            double daa = -Value * da / tmp;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void Acosh(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Acosh(Value);
+            double tmp = Value * Value - 1.0;
+            double da = 1.0 / Math.Sqrt(tmp);
+            double daa = -Value * da / tmp;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void Atanh(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            double f = Math.Atanh(Value);
+            double da = 1.0 / (1.0 - Value * Value);
+            double daa = 2.0 * Value * da * da;
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        public readonly void RootN(int n, DDScalarSpan destination)
+        {
+            if (n == 0) throw new ArgumentException("n cannot be zero", nameof(n));
+            CheckDestination(this, destination);
+            double f = Math.Pow(Value, 1.0 / n);
+            double da = f / (n * Value);
+            double daa = (1.0 - n) * da / (n * Value);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                destination.AsSpan(), _size, _order);
+        }
+
+        /// <summary>
+        /// Raises this value to a power that is itself an active variable. Unlike the
+        /// constant-exponent overload this evaluates <c>log(a)</c>, so it requires a positive base.
+        /// </summary>
+        public readonly void Pow(in DDScalarSpan b, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, b);
+            CheckDestination(this, b, destination);
+            double f = Math.Pow(Value, b.Value);
+            double logA = Math.Log(Value);
+            double da = b.Value * Math.Pow(Value, b.Value - 1.0);
+            double db = f * logA;
+            double daa = b.Value * (b.Value - 1.0) * Math.Pow(Value, b.Value - 2.0);
+            double dab = Math.Pow(Value, b.Value - 1.0) * (1.0 + b.Value * logA);
+            double dbb = db * logA;
+            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), b.AsReadOnlySpan(), f,
+                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
+                destination.AsSpan(), _size, _order);
+        }
+
+        /// <summary>Writes atan2(this, x) / pi into <paramref name="destination"/>.</summary>
+        public readonly void Atan2Pi(in DDScalarSpan x, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, x);
+            CheckDestination(this, x, destination);
+
+            // Every derivative of atan2 is simply scaled by 1/pi.
+            double tmp = Value * Value + x.Value * x.Value;
+            double f = Math.Atan2(Value, x.Value) / Math.PI;
+            double dy = x.Value / tmp;
+            double dx = -Value / tmp;
+            double da = dy / Math.PI;
+            double db = dx / Math.PI;
+            double daa = dx * dy * 2.0 / Math.PI;
+            double dab = (dx * dx - dy * dy) / Math.PI;
+            double dbb = -daa;
+
+            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), x.AsReadOnlySpan(), f,
+                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
+                destination.AsSpan(), _size, _order);
+        }
+
+        /// <summary>Writes log(this) / log(newBase) into <paramref name="destination"/>.</summary>
+        public readonly void Log(in DDScalarSpan newBase, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, newBase);
+            CheckDestination(this, newBase, destination);
+
+            double f = Math.Log(Value) / Math.Log(newBase.Value);
+            double la = Math.Log(Value);
+            double lb = Math.Log(newBase.Value);
+            double da = 1.0 / (Value * lb);
+            double db = -la / (newBase.Value * lb * lb);
+            double daa = -da / Value;
+            double dab = -1.0 / (Value * newBase.Value * lb * lb);
+            double dbb = la * (2.0 + lb) / (newBase.Value * newBase.Value * lb * lb * lb);
+
+            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
+                AsReadOnlySpan(), newBase.AsReadOnlySpan(), f,
+                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
+                destination.AsSpan(), _size, _order);
+        }
+
+        /// <summary>Writes sin and cos into two distinct destinations.</summary>
+        public readonly void SinCos(DDScalarSpan sinDestination, DDScalarSpan cosDestination)
+        {
+            if (sinDestination._data.Overlaps(cosDestination._data)) ThrowOverlap();
+            Sin(sinDestination);
+            Cos(cosDestination);
+        }
+
+        /// <summary>Writes sin(pi*a) and cos(pi*a) into two distinct destinations.</summary>
+        public readonly void SinCosPi(DDScalarSpan sinDestination, DDScalarSpan cosDestination)
+        {
+            if (sinDestination._data.Overlaps(cosDestination._data)) ThrowOverlap();
+            SinPi(sinDestination);
+            CosPi(cosDestination);
         }
 
         #endregion
