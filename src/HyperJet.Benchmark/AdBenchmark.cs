@@ -31,6 +31,28 @@ namespace HyperJet.Benchmark
             return f.Value + f.G(0) + f.H(0, 1);
         }
 
+        // The same arithmetic over ten compile-time variables, once with a Hessian and once without.
+        // Only two of the ten take part, so the expression is identical and what differs is the
+        // storage -- 66 coefficients against 11 -- and the kernel work that goes with it.
+
+        [Benchmark]
+        public double StaticSecondOrder_DDScalar10()
+        {
+            var x = DDScalar10<double>.Variable(0, XVal);
+            var y = DDScalar10<double>.Variable(1, YVal);
+            DDScalar10<double> f = (x * y) / (x - y);
+            return f.Value + f.G(0);
+        }
+
+        [Benchmark]
+        public double StaticFirstOrder_DScalar10()
+        {
+            var x = DScalar10<double>.Variable(0, XVal);
+            var y = DScalar10<double>.Variable(1, YVal);
+            DScalar10<double> f = (x * y) / (x - y);
+            return f.Value + f.G(0);
+        }
+
         [Benchmark]
         public double DynamicHeap_DDScalar()
         {
