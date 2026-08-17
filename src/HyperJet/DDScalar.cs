@@ -16,16 +16,19 @@ namespace HyperJet
         public readonly int Order => _order;
         public readonly int DataLength => _data?.Length ?? 0;
 
-        public double Value
+        /// <summary>
+        /// The value the function takes at the expansion point.
+        /// </summary>
+        /// <remarks>
+        /// Read-only, as are the gradient and Hessian accessors. This is a struct holding a shared
+        /// coefficient buffer, so a setter here would let an assignment that looks local reach every
+        /// other copy. Seed through the factory methods instead; <see cref="AsSpan"/> remains for the
+        /// cases that genuinely need the raw buffer.
+        /// </remarks>
+        public readonly double Value
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            readonly get => _data != null ? _data[0] : 0.0;
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            set
-            {
-                if (_data == null) ThrowNull();
-                _data[0] = value;
-            }
+            get => _data != null ? _data[0] : 0.0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -34,14 +37,6 @@ namespace HyperJet
             if (_data == null) ThrowNull();
             if (i < 0 || i >= _size) throw new ArgumentOutOfRangeException(nameof(i));
             return _data[1 + i];
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetG(int i, double value)
-        {
-            if (_data == null) ThrowNull();
-            if (i < 0 || i >= _size) throw new ArgumentOutOfRangeException(nameof(i));
-            _data[1 + i] = value;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -57,18 +52,6 @@ namespace HyperJet
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetH(int i, int j, double value)
-        {
-            if (_data == null) ThrowNull();
-            if (_order < 2) throw new InvalidOperationException("Hessian is only available for 2nd order dual numbers.");
-            if (i < 0 || i >= _size) throw new ArgumentOutOfRangeException(nameof(i));
-            if (j < 0 || j >= _size) throw new ArgumentOutOfRangeException(nameof(j));
-
-            int index = GetHessianIndex(i, j);
-            _data[index] = value;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly int GetHessianIndex(int i, int j)
         {
             if (i < j)
@@ -81,6 +64,15 @@ namespace HyperJet
             }
         }
 
+        /// <summary>
+        /// The live coefficient buffer: value, gradient, then the upper triangle of the Hessian.
+        /// </summary>
+        /// <remarks>
+        /// Writes through this span are visible through every copy of this scalar, and through any
+        /// <see cref="DDScalarSpan"/> built over it — which is what makes the bridge between the two
+        /// dynamic models useful. That aliasing is explicit here because the caller asked for the
+        /// buffer; it is the reason the value, gradient and Hessian accessors are read-only.
+        /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<double> AsSpan() => _data != null ? _data : Span<double>.Empty;
 
@@ -192,16 +184,37 @@ namespace HyperJet
         public static DDScalar Constant(double value, int size, int order = 2)
         {
             var result = new DDScalar(size, order);
-            result.Value = value;
+            result._data[0] = value;
             return result;
         }
 
+        /// <summary>
+        /// A variable seeded with the unit tangent along <paramref name="index"/>, which is what
+        /// yields the partial derivative with respect to that variable.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static DDScalar Variable(int index, double value, int size, int order = 2)
         {
+            if (index < 0 || index >= size) throw new ArgumentOutOfRangeException(nameof(index));
+
             var result = new DDScalar(size, order);
-            result.Value = value;
-            result.SetG(index, 1.0);
+            result._data[0] = value;
+            result._data[1 + index] = 1.0;
+            return result;
+        }
+
+        /// <summary>
+        /// A scalar seeded with an arbitrary tangent rather than a unit one, so that the resulting
+        /// derivative is the directional derivative along <paramref name="gradient"/>.
+        /// </summary>
+        /// <param name="value">The value at the expansion point.</param>
+        /// <param name="gradient">One component per variable; its length determines the size.</param>
+        /// <param name="order">1 for value and gradient, 2 to also carry a Hessian, seeded to zero.</param>
+        public static DDScalar WithGradient(double value, ReadOnlySpan<double> gradient, int order = 2)
+        {
+            var result = new DDScalar(gradient.Length, order);
+            result._data[0] = value;
+            gradient.CopyTo(result._data.AsSpan(1, gradient.Length));
             return result;
         }
 
@@ -270,7 +283,7 @@ namespace HyperJet
             if (a._data == null) ThrowNull();
             var result = new DDScalar(a._size, a._order);
             a._data.CopyTo(result._data, 0);
-            result.Value += b;
+            result._data[0] += b;
             return result;
         }
 
@@ -295,7 +308,7 @@ namespace HyperJet
             if (a._data == null) ThrowNull();
             var result = new DDScalar(a._size, a._order);
             a._data.CopyTo(result._data, 0);
-            result.Value -= b;
+            result._data[0] -= b;
             return result;
         }
 

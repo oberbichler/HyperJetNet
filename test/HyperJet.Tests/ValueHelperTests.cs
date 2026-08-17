@@ -124,7 +124,7 @@ namespace HyperJet.Tests
             var (a, b) = Operands();
 
             DDScalar picked = Min(a, b);
-            picked.Value = -999.0;
+            picked.AsSpan()[0] = -999.0;
 
             Assert.NotEqual(-999.0, a.Value);
         }

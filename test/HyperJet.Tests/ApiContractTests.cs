@@ -51,9 +51,12 @@ namespace HyperJet.Tests
 
             Assert.Throws<ArgumentOutOfRangeException>(() => a.G(-1));
             Assert.Throws<ArgumentOutOfRangeException>(() => a.G(2));
-            Assert.Throws<ArgumentOutOfRangeException>(() => a.SetG(2, 1.0));
             Assert.Throws<ArgumentOutOfRangeException>(() => a.H(0, 2));
             Assert.Throws<ArgumentOutOfRangeException>(() => a.H(2, 0));
+
+            // Seeding validates too, now that it is the only way in.
+            Assert.Throws<ArgumentOutOfRangeException>(() => DDScalar.Variable(2, 1.0, size: 2));
+            Assert.Throws<ArgumentOutOfRangeException>(() => DDScalar.Variable(-1, 1.0, size: 2));
         }
 
         [Fact]
@@ -62,7 +65,6 @@ namespace HyperJet.Tests
             DDScalar a = DDScalar.Variable(0, 1.0, size: 2, order: 1);
 
             Assert.Throws<InvalidOperationException>(() => a.H(0, 0));
-            Assert.Throws<InvalidOperationException>(() => a.SetH(0, 0, 1.0));
             Assert.Throws<InvalidOperationException>(() => a.GetHessian());
         }
 
@@ -74,7 +76,8 @@ namespace HyperJet.Tests
             Assert.Equal(0, a.DataLength);
             Assert.Throws<InvalidOperationException>(() => a.G(0));
             Assert.Throws<InvalidOperationException>(() => a.GetGradient());
-            Assert.Throws<InvalidOperationException>(() => a.Value = 1.0);
+            Assert.Equal(0.0, a.Value);
+            Assert.True(a.AsSpan().IsEmpty);
             Assert.Equal("Uninitialized DDScalar", a.ToString());
         }
 
@@ -144,22 +147,32 @@ namespace HyperJet.Tests
         #region Hazards worth knowing about
 
         /// <summary>
-        /// <see cref="DDScalar"/> is a struct wrapping a shared <c>double[]</c>. Copying it does
-        /// <em>not</em> deep-copy the coefficients, so a mutation through one copy is visible through
-        /// the other. All arithmetic operators allocate a fresh result, so this only surfaces when a
-        /// caller uses the mutating members (<c>Value</c> setter, <c>SetG</c>, <c>SetH</c>, <c>AsSpan</c>).
+        /// <see cref="DDScalar"/> is a struct wrapping a shared <c>double[]</c>, so copies still
+        /// alias — but <see cref="DDScalar.AsSpan"/> is now the only way to reach the buffer, and
+        /// asking for the buffer is an explicit act. The accessors that made the sharing look like
+        /// ordinary local assignment are gone.
         /// </summary>
         [Fact]
-        public void DDScalar_CopiesShareTheirBuffer()
+        public void DDScalar_CopiesShareTheirBufferOnlyThroughAsSpan()
         {
             DDScalar a = DDScalar.Variable(0, 1.0, size: 2);
             DDScalar copy = a;
 
-            copy.Value = 99.0;
-            copy.SetG(1, 7.0);
+            copy.AsSpan()[0] = 99.0;
 
             Assert.Equal(99.0, a.Value);
-            Assert.Equal(7.0, a.G(1));
+        }
+
+        /// <summary>
+        /// A guard against the mutating members coming back: they are what turned the shared buffer
+        /// into a trap, because an assignment through a copy read as local.
+        /// </summary>
+        [Fact]
+        public void DDScalar_ExposesNoPostConstructionMutation()
+        {
+            Assert.Null(typeof(DDScalar).GetMethod("SetG"));
+            Assert.Null(typeof(DDScalar).GetMethod("SetH"));
+            Assert.Null(typeof(DDScalar).GetProperty("Value")!.SetMethod);
         }
 
         /// <summary>
