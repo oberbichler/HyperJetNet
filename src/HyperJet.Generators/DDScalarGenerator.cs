@@ -220,7 +220,7 @@ namespace HyperJet
     /// Represents a 2nd order dual number with {n} static variables (Zero-Allocation, Stack-Allocated).
     /// </summary>
     public struct DDScalar{n}<T> : 
-        IFloatingPoint<DDScalar{n}<T>>,
+        IFloatingPointIeee754<DDScalar{n}<T>>,
         ITrigonometricFunctions<DDScalar{n}<T>>,
         IExponentialFunctions<DDScalar{n}<T>>,
         IHyperbolicFunctions<DDScalar{n}<T>>,
@@ -638,6 +638,13 @@ namespace HyperJet
         public static DDScalar{n}<T> E => new DDScalar{n}<T>(T.E);
         public static DDScalar{n}<T> Pi => new DDScalar{n}<T>(T.Pi);
         public static DDScalar{n}<T> Tau => new DDScalar{n}<T>(T.Tau);
+
+        // IEEE 754 special values. Like every other constant these carry no derivatives.
+        public static DDScalar{n}<T> Epsilon => new DDScalar{n}<T>(T.Epsilon);
+        public static DDScalar{n}<T> NaN => new DDScalar{n}<T>(T.NaN);
+        public static DDScalar{n}<T> PositiveInfinity => new DDScalar{n}<T>(T.PositiveInfinity);
+        public static DDScalar{n}<T> NegativeInfinity => new DDScalar{n}<T>(T.NegativeInfinity);
+        public static DDScalar{n}<T> NegativeZero => new DDScalar{n}<T>(T.NegativeZero);
 
         public static int Radix => 2;
 
@@ -1490,6 +1497,55 @@ namespace HyperJet
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
                 default, new ValueCoeff<T>(-quotient), default, default, default,
                 result.AsSpan(), Size, Order);
+            return result;
+        }}
+
+        /// <summary>
+        /// The next representable value above <paramref name=""x""/>.
+        /// </summary>
+        /// <remarks>
+        /// Within a binade the step is a constant, so this is <c>x + c</c> and the derivatives are
+        /// those of <c>x</c> itself — unlike <c>Round</c> or <c>Floor</c>, which are piecewise
+        /// constant and therefore return a derivative-free value. Only the value moves.
+        /// </remarks>
+        public static DDScalar{n}<T> BitIncrement(DDScalar{n}<T> x)
+        {{
+            DDScalar{n}<T> result = x;
+            result.Value = T.BitIncrement(x.Value);
+            return result;
+        }}
+
+        /// <summary>
+        /// The next representable value below <paramref name=""x""/>. Derivatives are preserved, for
+        /// the reason given on <see cref=""BitIncrement""/>.
+        /// </summary>
+        public static DDScalar{n}<T> BitDecrement(DDScalar{n}<T> x)
+        {{
+            DDScalar{n}<T> result = x;
+            result.Value = T.BitDecrement(x.Value);
+            return result;
+        }}
+
+        /// <summary>The base-2 exponent of the value. Integer-valued, so there is nothing to differentiate.</summary>
+        public static int ILogB(DDScalar{n}<T> x) => T.ILogB(x.Value);
+
+        /// <summary>
+        /// Multiplies by <c>2^n</c>. This is an exact linear scaling, so every coefficient scales
+        /// with it; applying <c>ScaleB</c> per coefficient keeps that exact instead of routing it
+        /// through a multiplication by a computed power of two.
+        /// </summary>
+        public static DDScalar{n}<T> ScaleB(DDScalar{n}<T> x, int n)
+        {{
+            DDScalar{n}<T> result = default;
+
+            ReadOnlySpan<T> source = x.AsReadOnlySpan();
+            Span<T> destination = result.AsSpan();
+
+            for (int i = 0; i < DataLength; i++)
+            {{
+                destination[i] = T.ScaleB(source[i], n);
+            }}
+
             return result;
         }}
 
