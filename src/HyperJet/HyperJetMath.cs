@@ -538,6 +538,53 @@ namespace HyperJet
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static (DDScalar SinPi, DDScalar CosPi) SinCosPi(in DDScalar a) => (SinPi(a), CosPi(a));
 
+        /// <summary>
+        /// Computes <c>(x * y) + z</c> with a single rounding of the value, the way
+        /// <c>IFloatingPointIeee754.FusedMultiplyAdd</c> specifies. The form is bilinear, so its
+        /// derivatives are exact regardless: d/dx = y, d/dy = x, d/dz = 1, and the only non-zero
+        /// second derivative is the mixed d2/dxdy = 1.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar FusedMultiplyAdd(in DDScalar x, in DDScalar y, in DDScalar z)
+        {
+            if (x.Size != y.Size || x.Order != y.Order || x.Size != z.Size || x.Order != z.Order)
+                throw new InvalidOperationException("Incompatible sizes or orders for FusedMultiplyAdd.");
+
+            double f = Math.FusedMultiplyAdd(x.Value, y.Value, z.Value);
+
+            DDScalar result = new DDScalar(x.Size, x.Order);
+            Kernel.Ternary<FalseTag,
+                ValueCoeff, ValueCoeff, OneCoeff,
+                ZeroCoeff, OneCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
+                x.AsReadOnlySpan(), y.AsReadOnlySpan(), z.AsReadOnlySpan(), f,
+                new ValueCoeff(y.Value), new ValueCoeff(x.Value), default,
+                default, default, default, default, default, default,
+                result.AsSpan(), x.Size, x.Order);
+            return result;
+        }
+
+        /// <summary>
+        /// The IEEE 754 remainder <c>a - b * q</c>, where <c>q</c> is <c>a / b</c> rounded to the
+        /// nearest integer with ties to even. Same function as <see cref="Math.IEEERemainder"/>,
+        /// under the name generic math uses. Piecewise linear, so both second derivatives vanish.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Ieee754Remainder(in DDScalar a, in DDScalar b)
+        {
+            if (a.Size != b.Size || a.Order != b.Order)
+                throw new InvalidOperationException("Incompatible sizes or orders for Ieee754Remainder.");
+
+            double quotient = Math.Round(a.Value / b.Value, MidpointRounding.ToEven);
+            double f = Math.IEEERemainder(a.Value, b.Value);
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Binary<FalseTag, OneCoeff, ValueCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
+                a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
+                default, new ValueCoeff(-quotient), default, default, default,
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
         #endregion
     }
 

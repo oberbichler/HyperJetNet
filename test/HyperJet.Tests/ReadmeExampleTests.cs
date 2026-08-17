@@ -90,5 +90,22 @@ namespace HyperJet.Tests
             const double sx = 1.1, sy = 1.8;
             Assert.Equal(sx * sx + 3.0 * sx * sy + sy * sy, f.Evaluate(0.1, -0.2), precision: 12);
         }
+
+        [Fact]
+        public void Example6_Ieee754Operations()
+        {
+            var (x, y, z) = DDScalar3<double>.Variables(1.7, -2.3, 0.9);
+
+            DDScalar3<double> fma = HyperJetMath.FusedMultiplyAdd(x, y, z);
+
+            Assert.Equal(-2.3, fma.G(0), precision: 12);
+            Assert.Equal(1.7, fma.G(1), precision: 12);
+            Assert.Equal(1.0, fma.H(0, 1), precision: 12);
+
+            var (a, b) = DDScalar2<double>.Variables(5.9, 1.0);
+
+            Assert.Equal(-0.1, HyperJetMath.Ieee754Remainder(a, b).Value, precision: 12);
+            Assert.Equal(0.9, (a % b).Value, precision: 12);
+        }
     }
 }

@@ -198,6 +198,14 @@ namespace HyperJet
             if (dest._data.Overlaps(b._data)) ThrowOverlap();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void CheckDestination(in DDScalarSpan a, in DDScalarSpan b, in DDScalarSpan c, in DDScalarSpan dest)
+        {
+            CheckDestination(a, b, dest);
+
+            if (dest._data.Overlaps(c._data)) ThrowOverlap();
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         [System.Diagnostics.CodeAnalysis.DoesNotReturn]
         private static void ThrowOverlap()
@@ -787,6 +795,48 @@ namespace HyperJet
             if (sinDestination._data.Overlaps(cosDestination._data)) ThrowOverlap();
             SinPi(sinDestination);
             CosPi(cosDestination);
+        }
+
+        /// <summary>
+        /// Computes <c>(this * y) + z</c> with a single rounding of the value, the way
+        /// <c>IFloatingPointIeee754.FusedMultiplyAdd</c> specifies. The form is bilinear, so its
+        /// derivatives are exact regardless: d/dx = y, d/dy = x, d/dz = 1, and the only non-zero
+        /// second derivative is the mixed d2/dxdy = 1.
+        /// </summary>
+        public readonly void FusedMultiplyAdd(in DDScalarSpan y, in DDScalarSpan z, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, y);
+            CheckCompatibility(this, z);
+            CheckDestination(this, y, z, destination);
+
+            double f = Math.FusedMultiplyAdd(Value, y.Value, z.Value);
+
+            Kernel.Ternary<FalseTag,
+                ValueCoeff, ValueCoeff, OneCoeff,
+                ZeroCoeff, OneCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
+                AsReadOnlySpan(), y.AsReadOnlySpan(), z.AsReadOnlySpan(), f,
+                new ValueCoeff(y.Value), new ValueCoeff(Value), default,
+                default, default, default, default, default, default,
+                destination.AsSpan(), _size, _order);
+        }
+
+        /// <summary>
+        /// The IEEE 754 remainder <c>this - b * q</c>, where <c>q</c> is <c>this / b</c> rounded to
+        /// the nearest integer with ties to even. Same function as <see cref="Math.IEEERemainder"/>,
+        /// under the name generic math uses. Piecewise linear, so both second derivatives vanish.
+        /// </summary>
+        public readonly void Ieee754Remainder(in DDScalarSpan b, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, b);
+            CheckDestination(this, b, destination);
+
+            double quotient = Math.Round(Value / b.Value, MidpointRounding.ToEven);
+            double f = Math.IEEERemainder(Value, b.Value);
+
+            Kernel.Binary<FalseTag, OneCoeff, ValueCoeff, ZeroCoeff, ZeroCoeff, ZeroCoeff>(
+                AsReadOnlySpan(), b.AsReadOnlySpan(), f,
+                default, new ValueCoeff(-quotient), default, default, default,
+                destination.AsSpan(), _size, _order);
         }
 
         #endregion
