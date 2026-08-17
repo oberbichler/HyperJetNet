@@ -1040,6 +1040,10 @@ namespace HyperJet
 
         #region Standard Operators (Dynamic DDScalar Fallback)
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(in DDScalarSpan a)
         {
             var result = new DDScalar(a._size, a._order);
@@ -1050,6 +1054,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator +(in DDScalarSpan a, in DDScalarSpan b)
         {
             CheckCompatibility(a, b);
@@ -1058,6 +1066,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator +(in DDScalarSpan a, in DDScalar b)
         {
             CheckCompatibility(a, b);
@@ -1066,8 +1078,16 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator +(in DDScalar a, in DDScalarSpan b) => b + a;
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator +(in DDScalarSpan a, double b)
         {
             var result = new DDScalar(a._size, a._order);
@@ -1075,8 +1095,16 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator +(double a, in DDScalarSpan b) => b + a;
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(in DDScalarSpan a, in DDScalarSpan b)
         {
             CheckCompatibility(a, b);
@@ -1085,6 +1113,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(in DDScalarSpan a, in DDScalar b)
         {
             CheckCompatibility(a, b);
@@ -1093,6 +1125,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(in DDScalar a, in DDScalarSpan b)
         {
             CheckCompatibility(b, a);
@@ -1101,6 +1137,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(in DDScalarSpan a, double b)
         {
             var result = new DDScalar(a._size, a._order);
@@ -1108,6 +1148,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator -(double a, in DDScalarSpan b)
         {
             var result = new DDScalar(b._size, b._order);
@@ -1115,6 +1159,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator *(in DDScalarSpan a, in DDScalarSpan b)
         {
             CheckCompatibility(a, b);
@@ -1123,6 +1171,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator *(in DDScalarSpan a, in DDScalar b)
         {
             CheckCompatibility(a, b);
@@ -1131,8 +1183,16 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator *(in DDScalar a, in DDScalarSpan b) => b * a;
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator *(in DDScalarSpan a, double b)
         {
             var result = new DDScalar(a._size, a._order);
@@ -1140,8 +1200,16 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator *(double a, in DDScalarSpan b) => b * a;
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator /(in DDScalarSpan a, in DDScalarSpan b)
         {
             CheckCompatibility(a, b);
@@ -1150,6 +1218,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator /(in DDScalarSpan a, in DDScalar b)
         {
             CheckCompatibility(a, b);
@@ -1158,6 +1230,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator /(in DDScalar a, in DDScalarSpan b)
         {
             CheckCompatibility(b, a);
@@ -1166,6 +1242,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator /(in DDScalarSpan a, double b)
         {
             var result = new DDScalar(a._size, a._order);
@@ -1173,6 +1253,10 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Convenience only: allocates a heap <see cref="DDScalar"/> for the result. The
+        /// destination-taking instance methods are the allocation-free path this type exists for.
+        /// </summary>
         public static DDScalar operator /(double a, in DDScalarSpan b)
         {
             var result = new DDScalar(b._size, b._order);

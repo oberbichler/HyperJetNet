@@ -301,6 +301,56 @@ namespace HyperJet.Tests
             Assert.Throws<ArgumentException>(() => Kernel.GetSizeFromDataLength(length, order: 2));
         }
 
+        [Fact]
+        public void GetSizeFromDataLength_RejectsANonPositiveFirstOrderLength()
+        {
+            Assert.Throws<ArgumentException>(() => Kernel.GetSizeFromDataLength(0, order: 1));
+        }
+
+        /// <summary>
+        /// The round trip has to hold over the whole representable range, not just over the sizes a
+        /// caller is likely to use.
+        /// </summary>
+        /// <remarks>
+        /// It did not. In <c>GetSizeFromDataLength</c> the term <c>8 * length</c> overflowed int
+        /// above a length of 268435455, so the square root of a negative number produced NaN and a
+        /// valid length was rejected as invalid from size 23169 upwards. And
+        /// <c>GetDataLength</c> overflowed in <c>(size + 1) * (size + 2)</c> from size 46340,
+        /// silently handing back a negative coefficient count for the caller to allocate from.
+        /// </remarks>
+        [Theory]
+        [InlineData(23168)]
+        [InlineData(23169)]   // first size the inverse used to reject
+        [InlineData(40000)]
+        [InlineData(46339)]
+        [InlineData(46340)]   // first size the forward formula used to get wrong
+        [InlineData(65534)]   // largest size whose coefficient count fits in an int
+        public void LargeSizes_RoundTripRatherThanOverflow(int size)
+        {
+            int length = Kernel.GetDataLength(size, order: 2);
+
+            Assert.Equal((size + 1L) * (size + 2L) / 2L, length);
+            Assert.Equal(size, Kernel.GetSizeFromDataLength(length, order: 2));
+        }
+
+        [Fact]
+        public void ASizeTooLargeToRepresentIsRejected()
+        {
+            // 65535 would need 2147516416 coefficients, past int.MaxValue.
+            var thrown = Assert.Throws<ArgumentOutOfRangeException>(() => Kernel.GetDataLength(65535, order: 2));
+            Assert.Contains("exceeds", thrown.Message);
+        }
+
+        [Fact]
+        public void ANegativeSizeIsRejected()
+        {
+            // DDScalarSpan reached GetDataLength before validating, so a negative size produced an
+            // expected length of zero and any buffer satisfied it.
+            Assert.Throws<ArgumentOutOfRangeException>(() => Kernel.GetDataLength(-1, order: 2));
+            Assert.Throws<ArgumentOutOfRangeException>(() => Kernel.GetDataLength(-1, order: 1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new DDScalarSpan(new double[8], -1, 2));
+        }
+
         /// <summary>
         /// With a zero first-derivative coefficient but a non-zero second-derivative coefficient,
         /// the second-order chain-rule term <c>daa * grad(a) grad(a)^T</c> still contributes and
