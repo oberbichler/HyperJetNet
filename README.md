@@ -186,29 +186,40 @@ Console.WriteLine($"f''''(1.3) = {f.H(0, 0).H(0, 0)}"); // sin(1.3), since d⁴/
 
 ## Performance & Benchmarks
 
-Benchmark measurements on **Apple M1 Pro (macOS)** demonstrate the outstanding efficiency of optimizations under .NET 10:
+Measured on an **Apple M1 Pro**. Reproduce with:
+
+```bash
+dotnet run -c Release --project src/HyperJet.Benchmark -- --launchCount 5 --warmupCount 10 --iterationCount 25
+```
 
 ```
-BenchmarkDotNet v0.14.0, macOS 26.5
+BenchmarkDotNet v0.14.0, macOS 26.5 (25F71) [Darwin 25.5.0]
 Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
+.NET SDK 10.0.300
 IsHardwareAccelerated (ARM64 Neon / AdvSIMD) = True
 ```
 
-| Method                          | Size ($n$) |      Mean | Gen 0 / 1000 ops | Heap Allocation |
-| ------------------------------- | :--------: | --------: | ---------------: | --------------: |
-| `StaticDouble_DDScalar2`        |     2      |  56.29 ns |                - |         **0 B** |
-| `DynamicHeap_DDScalar`          |     2      |  53.41 ns |           0.0573 |           360 B |
-| `DynamicStack_DDScalarSpan`     |     2      |  39.58 ns |                - |         **0 B** |
-| `DynamicHeap_ScalarOnly_NoSIMD` |     2      |  40.29 ns |           0.0573 |           360 B |
-|                                 |            |           |                  |                 |
-| `DynamicHeap_DDScalar` (SIMD)   |     10     | 312.97 ns |           0.4396 |          2760 B |
-| `DynamicStack_DDScalarSpan`     |     10     | 246.11 ns |                - |         **0 B** |
-| `DynamicHeap_ScalarOnly_NoSIMD` |     10     | 332.85 ns |           0.4396 |          2760 B |
+| Method                          | Size ($n$) |      Mean |     Error | Gen 0 / 1000 ops | Heap Allocation |
+| ------------------------------- | :--------: | --------: | --------: | ---------------: | --------------: |
+| `StaticDouble_DDScalar2`        |     2      |  52.90 ns |  2.00 ns  |                - |         **0 B** |
+| `StaticFloat_DDScalar2`         |     2      |  54.23 ns |  0.72 ns  |                - |         **0 B** |
+| `DynamicHeap_DDScalar`          |     2      |  51.93 ns |  3.19 ns  |           0.0573 |           360 B |
+| `DynamicStack_DDScalarSpan`     |     2      |  43.20 ns |  1.48 ns  |                - |         **0 B** |
+| `DynamicHeap_ScalarOnly_NoSIMD` |     2      |  38.39 ns |  4.35 ns  |           0.0573 |           360 B |
+|                                 |            |           |           |                  |                 |
+| `StaticDouble_DDScalar2`        |     10     |  52.72 ns |  0.41 ns  |                - |         **0 B** |
+| `DynamicHeap_DDScalar` (SIMD)   |     10     | 262.18 ns | 77.06 ns  |           0.4396 |          2760 B |
+| `DynamicStack_DDScalarSpan`     |     10     | 227.53 ns | 28.55 ns  |                - |         **0 B** |
+| `DynamicHeap_ScalarOnly_NoSIMD` |     10     | 279.79 ns |  4.82 ns  |           0.4396 |          2760 B |
 
-### Key Insights:
+Run-to-run variation on this machine is a few percent, so differences below roughly 5% should not be read as meaningful.
 
-1. **SIMD Vectorization**: At larger scales ($n=10$), native `Vector128` vectorization on Apple Silicon reduces execution time by **~6.3%** (`312 ns` vs. `332 ns` without SIMD).
-2. **Zero-Allocation Stack Power**: `DDScalarSpan` is **~21% to 26% faster** than its heap-allocated counterpart due to direct reference passing, while completely avoiding Garbage Collection pressure.
+### Key Insights
+
+1. **SIMD vectorization**: at $n=10$, native `Vector128` on Apple Silicon takes **~6%** off the runtime (`262 ns` against `280 ns` for the scalar path).
+2. **Stack over heap**: `DDScalarSpan` runs **~13% to 17% faster** than the heap-allocated `DDScalar` and allocates nothing, so it adds no GC pressure.
+3. **Size is what costs**: the static `DDScalar2` is flat at ~53 ns because its size is fixed, while the dynamic models grow with $n$ — the second-order block is quadratic in the variable count.
+4. **At $n=2$ the overlap check shows**: `DDScalarSpan` is slower than the raw scalar loop here because every operation verifies that the destination does not alias an operand. That costs ~4 ns, which is visible only when the work itself is this small; at $n=10$ it disappears into the noise. It buys silent-corruption safety, which at this size is a trade you can also avoid by using `DDScalar2`.
 
 ---
 
