@@ -22,6 +22,10 @@ namespace HyperJet.Tests
             Assert.Equal(System.Math.Pow(2.0, 3.0), Pow(2.0, 3.0));
             Assert.Equal(System.Math.Atan2(1.0, 2.0), Atan2(1.0, 2.0));
             Assert.Equal(System.Math.Abs(-1.5), Abs(-1.5));
+
+            // The facade deliberately offers this name too, so it is the one most likely to
+            // collide. A plain-double call must still reach System.Math.
+            Assert.Equal(System.Math.IEEERemainder(5.9, 1.0), IEEERemainder(5.9, 1.0));
         }
 
         [Fact]

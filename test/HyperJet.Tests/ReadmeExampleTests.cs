@@ -124,6 +124,7 @@ namespace HyperJet.Tests
 
             Assert.Equal(-0.1, HyperJetMath.Ieee754Remainder(a, b).Value, precision: 12);
             Assert.Equal(0.9, (a % b).Value, precision: 12);
+            Assert.Equal(-0.1, HyperJetMath.IEEERemainder(a, b).Value, precision: 12);
         }
 
         [Fact]
