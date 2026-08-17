@@ -5,216 +5,17 @@ using System.Runtime.CompilerServices;
 namespace HyperJet
 {
     /// <summary>
-    /// Provides highly optimized mathematical operations for both static (<see cref="DDScalar2"/>) and dynamic (<see cref="DDScalar"/>) dual numbers.
-    /// Mirroring the standard <see cref="System.Math"/> class.
+    /// Provides mathematical operations for the dynamic <see cref="DDScalar"/> in the free-function
+    /// spelling of <see cref="System.Math"/>, so that <c>using static HyperJet.HyperJetMath;</c> lets
+    /// an expression be written the same way for every computational model.
     /// </summary>
-    public static class HyperJetMath
+    /// <remarks>
+    /// The matching overloads for the generated <c>DDScalar1</c>..<c>DDScalar15</c> structs live in the
+    /// other half of this partial class, which the source generator emits. Those forward to the
+    /// structs' own generic-math members rather than repeating the derivative formulas.
+    /// </remarks>
+    public static partial class HyperJetMath
     {
-        #region DDScalar2 Functions
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Sin(in DDScalar2 a)
-        {
-            double f = Math.Sin(a.Value);
-            double da = Math.Cos(a.Value);
-            double daa = -f;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Cos(in DDScalar2 a)
-        {
-            double f = Math.Cos(a.Value);
-            double da = -Math.Sin(a.Value);
-            double daa = -f;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Tan(in DDScalar2 a)
-        {
-            double f = Math.Tan(a.Value);
-            double da = f * f + 1.0;
-            double daa = da * 2.0 * f;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Asin(in DDScalar2 a)
-        {
-            double f = Math.Asin(a.Value);
-            double tmp = 1.0 - a.Value * a.Value;
-            double da = 1.0 / Math.Sqrt(tmp);
-            double daa = da * a.Value / tmp;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Acos(in DDScalar2 a)
-        {
-            double f = Math.Acos(a.Value);
-            double tmp = 1.0 - a.Value * a.Value;
-            double da = -1.0 / Math.Sqrt(tmp);
-            double daa = da * a.Value / tmp;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Atan(in DDScalar2 a)
-        {
-            double f = Math.Atan(a.Value);
-            double da = 1.0 / (a.Value * a.Value + 1.0);
-            double daa = -da * da * 2.0 * a.Value;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Atan2(in DDScalar2 y, in DDScalar2 x)
-        {
-            double tmp = y.Value * y.Value + x.Value * x.Value;
-            double f = Math.Atan2(y.Value, x.Value);
-            double da = x.Value / tmp;
-            double db = -y.Value / tmp;
-            double daa = db * da * 2.0;
-            double dab = db * db - da * da;
-            double dbb = -daa;
-
-            DDScalar2 result = default;
-            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
-                y.AsReadOnlySpan(), x.AsReadOnlySpan(), f,
-                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Exp(in DDScalar2 a)
-        {
-            double f = Math.Exp(a.Value);
-            double da = f;
-            double daa = f;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Log(in DDScalar2 a)
-        {
-            double f = Math.Log(a.Value);
-            double da = 1.0 / a.Value;
-            double daa = -da * da;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Log10(in DDScalar2 a)
-        {
-            double f = Math.Log10(a.Value);
-            double ln10 = Math.Log(10.0);
-            double da = 1.0 / (a.Value * ln10);
-            double daa = -da / a.Value;
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Sqrt(in DDScalar2 a)
-        {
-            double f = Math.Sqrt(a.Value);
-            double da = 1.0 / (2.0 * f);
-            double daa = -da / (2.0 * a.Value);
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Pow(in DDScalar2 a, double b)
-        {
-            double f = Math.Pow(a.Value, b);
-            double da = b * Math.Pow(a.Value, b - 1.0);
-            double daa = (b - 1.0) * b * Math.Pow(a.Value, b - 2.0);
-
-            DDScalar2 result = default;
-            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Hypot(in DDScalar2 a, in DDScalar2 b)
-        {
-            double f = Math.Sqrt(a.Value * a.Value + b.Value * b.Value);
-            double f3 = f * f * f;
-            double da = a.Value / f;
-            double db = b.Value / f;
-            double daa = b.Value * b.Value / f3;
-            double dab = -a.Value * b.Value / f3;
-            double dbb = a.Value * a.Value / f3;
-
-            DDScalar2 result = default;
-            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
-                a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
-                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
-                result.AsSpan(), DDScalar2.Size, DDScalar2.Order);
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar2 Abs(in DDScalar2 a)
-        {
-            return a.Value < 0 ? -a : a;
-        }
-
-        #endregion
-
         #region DDScalar (Dynamic) Functions
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -494,6 +295,248 @@ namespace HyperJet
                 result.AsSpan(), a.Size, a.Order);
             return result;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar SinPi(in DDScalar a)
+        {
+            double f = Math.Sin(Math.PI * a.Value);
+            double da = Math.PI * Math.Cos(Math.PI * a.Value);
+            double daa = -Math.PI * Math.PI * f;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar CosPi(in DDScalar a)
+        {
+            double f = Math.Cos(Math.PI * a.Value);
+            double da = -Math.PI * Math.Sin(Math.PI * a.Value);
+            double daa = -Math.PI * Math.PI * f;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar TanPi(in DDScalar a)
+        {
+            double f = Math.Tan(Math.PI * a.Value);
+            double da = Math.PI * (f * f + 1.0);
+            double daa = 2.0 * Math.PI * f * da;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar AsinPi(in DDScalar a)
+        {
+            double f = Math.Asin(a.Value) / Math.PI;
+            double tmp = 1.0 - a.Value * a.Value;
+            double da = 1.0 / (Math.PI * Math.Sqrt(tmp));
+            double daa = a.Value * da / tmp;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar AcosPi(in DDScalar a)
+        {
+            double f = Math.Acos(a.Value) / Math.PI;
+            double tmp = 1.0 - a.Value * a.Value;
+            double da = -1.0 / (Math.PI * Math.Sqrt(tmp));
+            double daa = a.Value * da / tmp;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar AtanPi(in DDScalar a)
+        {
+            double f = Math.Atan(a.Value) / Math.PI;
+            double da = 1.0 / (Math.PI * (a.Value * a.Value + 1.0));
+            double daa = -2.0 * a.Value * Math.PI * da * da;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Exp2(in DDScalar a)
+        {
+            double f = double.Exp2(a.Value);
+            double ln2 = Math.Log(2.0);
+            double da = f * ln2;
+            double daa = da * ln2;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Exp10(in DDScalar a)
+        {
+            double f = double.Exp10(a.Value);
+            double ln10 = Math.Log(10.0);
+            double da = f * ln10;
+            double daa = da * ln10;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar ExpM1(in DDScalar a)
+        {
+            double f = double.ExpM1(a.Value);
+            double da = f + 1.0;
+            double daa = da;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar LogP1(in DDScalar a)
+        {
+            double f = double.LogP1(a.Value);
+            double da = 1.0 / (a.Value + 1.0);
+            double daa = -da * da;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Asinh(in DDScalar a)
+        {
+            double f = Math.Asinh(a.Value);
+            double tmp = a.Value * a.Value + 1.0;
+            double da = 1.0 / Math.Sqrt(tmp);
+            double daa = -a.Value * da / tmp;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Acosh(in DDScalar a)
+        {
+            double f = Math.Acosh(a.Value);
+            double tmp = a.Value * a.Value - 1.0;
+            double da = 1.0 / Math.Sqrt(tmp);
+            double daa = -a.Value * da / tmp;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Atanh(in DDScalar a)
+        {
+            double f = Math.Atanh(a.Value);
+            double da = 1.0 / (1.0 - a.Value * a.Value);
+            double daa = 2.0 * a.Value * da * da;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar RootN(in DDScalar a, int n)
+        {
+            if (n == 0) throw new ArgumentException("n cannot be zero", nameof(n));
+
+            double f = Math.Pow(a.Value, 1.0 / n);
+            double da = f / (n * a.Value);
+            double daa = (1.0 - n) * da / (n * a.Value);
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Unary<FalseTag, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), f, new ValueCoeff(da), new ValueCoeff(daa),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        /// <summary>
+        /// Raises <paramref name="a"/> to a power that is itself an active variable. Unlike the
+        /// constant-exponent overload this evaluates <c>log(a)</c>, so it requires a positive base.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Pow(in DDScalar a, in DDScalar b)
+        {
+            if (a.Size != b.Size || a.Order != b.Order)
+                throw new InvalidOperationException("Incompatible sizes or orders for Pow.");
+
+            double f = Math.Pow(a.Value, b.Value);
+            double logA = Math.Log(a.Value);
+            double da = b.Value * Math.Pow(a.Value, b.Value - 1.0);
+            double db = f * logA;
+            double daa = b.Value * (b.Value - 1.0) * Math.Pow(a.Value, b.Value - 2.0);
+            double dab = Math.Pow(a.Value, b.Value - 1.0) * (1.0 + b.Value * logA);
+            double dbb = db * logA;
+
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            Kernel.Binary<FalseTag, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff, ValueCoeff>(
+                a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
+                new ValueCoeff(da), new ValueCoeff(db), new ValueCoeff(daa), new ValueCoeff(dab), new ValueCoeff(dbb),
+                result.AsSpan(), a.Size, a.Order);
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Atan2Pi(in DDScalar y, in DDScalar x) => Atan2(y, x) / Math.PI;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Log(in DDScalar a, in DDScalar newBase) => Log(a) / Log(newBase);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (DDScalar Sin, DDScalar Cos) SinCos(in DDScalar a) => (Sin(a), Cos(a));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (DDScalar SinPi, DDScalar CosPi) SinCosPi(in DDScalar a) => (SinPi(a), CosPi(a));
 
         #endregion
     }

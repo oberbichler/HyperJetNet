@@ -126,7 +126,9 @@ var F = new Vector3D<DDScalar3<double>>(0.0, 10.0, 0.0); // 10.0 converts implic
 Vector3D<DDScalar3<double>> torque = Physics.CalculateTorque(r, F);
 DDScalar3<double> torqueZ = torque.Z;
 
-Console.WriteLine($"Lever-arm sensitivity on Z-torque: {torqueZ.G(1)}"); // -10.0
+// torque.Z = r.X * F.Y - r.Y * F.X, so the sensitivity to the lever arm r.X is F.Y.
+Console.WriteLine($"Z-torque: {torqueZ.Value}");                        // 20.0
+Console.WriteLine($"Lever-arm sensitivity on Z-torque: {torqueZ.G(0)}"); // 10.0
 ```
 
 ---
