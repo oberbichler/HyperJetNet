@@ -841,6 +841,203 @@ namespace HyperJet
 
         #endregion
 
+        #region Value-Level Helpers
+
+        /// <summary>Copies whichever operand wins the comparison, derivatives included.</summary>
+        private readonly void SelectInto(bool takeThis, in DDScalarSpan other, DDScalarSpan destination)
+        {
+            if (takeThis) _data.CopyTo(destination._data);
+            else other._data.CopyTo(destination._data);
+        }
+
+        /// <summary>Writes a derivative-free constant.</summary>
+        private static void WriteConstant(double value, DDScalarSpan destination)
+        {
+            destination._data.Clear();
+            destination._data[0] = value;
+        }
+
+        /// <summary>Selects by value and copies the winner into <paramref name="destination"/>.</summary>
+        public readonly void Min(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+            SelectInto(Value < other.Value, other, destination);
+        }
+
+        /// <summary>Selects by value and copies the winner into <paramref name="destination"/>.</summary>
+        public readonly void Max(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+            SelectInto(Value > other.Value, other, destination);
+        }
+
+        /// <summary>Selects by value and copies the winner into <paramref name="destination"/>.</summary>
+        public readonly void MinMagnitude(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+            SelectInto(Math.Abs(Value) < Math.Abs(other.Value), other, destination);
+        }
+
+        /// <summary>Selects by value and copies the winner into <paramref name="destination"/>.</summary>
+        public readonly void MaxMagnitude(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+            SelectInto(Math.Abs(Value) >= Math.Abs(other.Value), other, destination);
+        }
+
+        /// <summary>As <see cref="Min"/>, but a NaN operand loses against a number.</summary>
+        public readonly void MinNumber(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+
+            if (double.IsNaN(Value)) { other._data.CopyTo(destination._data); return; }
+            if (double.IsNaN(other.Value)) { _data.CopyTo(destination._data); return; }
+
+            SelectInto(Value < other.Value, other, destination);
+        }
+
+        /// <summary>As <see cref="Max"/>, but a NaN operand loses against a number.</summary>
+        public readonly void MaxNumber(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+
+            if (double.IsNaN(Value)) { other._data.CopyTo(destination._data); return; }
+            if (double.IsNaN(other.Value)) { _data.CopyTo(destination._data); return; }
+
+            SelectInto(Value > other.Value, other, destination);
+        }
+
+        /// <summary>As <see cref="MinMagnitude"/>, but a NaN operand loses against a number.</summary>
+        public readonly void MinMagnitudeNumber(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+
+            if (double.IsNaN(Value)) { other._data.CopyTo(destination._data); return; }
+            if (double.IsNaN(other.Value)) { _data.CopyTo(destination._data); return; }
+
+            SelectInto(Math.Abs(Value) < Math.Abs(other.Value), other, destination);
+        }
+
+        /// <summary>As <see cref="MaxMagnitude"/>, but a NaN operand loses against a number.</summary>
+        public readonly void MaxMagnitudeNumber(in DDScalarSpan other, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, other);
+            CheckDestination(this, other, destination);
+
+            if (double.IsNaN(Value)) { other._data.CopyTo(destination._data); return; }
+            if (double.IsNaN(other.Value)) { _data.CopyTo(destination._data); return; }
+
+            SelectInto(Math.Abs(Value) >= Math.Abs(other.Value), other, destination);
+        }
+
+        /// <summary>Selects this value, min or max, and copies the winner into <paramref name="destination"/>.</summary>
+        public readonly void Clamp(in DDScalarSpan min, in DDScalarSpan max, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, min);
+            CheckCompatibility(this, max);
+            CheckDestination(this, min, max, destination);
+            if (min.Value > max.Value) throw new ArgumentException("min cannot be greater than max");
+
+            if (Value < min.Value) min._data.CopyTo(destination._data);
+            else if (Value > max.Value) max._data.CopyTo(destination._data);
+            else _data.CopyTo(destination._data);
+        }
+
+        /// <summary>The sign as -1, 0 or 1. Piecewise constant, so the result carries no derivatives.</summary>
+        public readonly void Sign(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Sign(Value), destination);
+        }
+
+        /// <summary>The magnitude of this value with the sign of <paramref name="sign"/>.</summary>
+        public readonly void CopySign(in DDScalarSpan sign, DDScalarSpan destination)
+        {
+            CheckCompatibility(this, sign);
+            CheckDestination(this, sign, destination);
+
+            if (double.IsNegative(sign.Value) != (Value < 0.0)) Negate(destination);
+            else _data.CopyTo(destination._data);
+        }
+
+        // Rounding is piecewise constant, so away from the break points the derivative is zero
+        // and the result is a constant.
+
+        public readonly void Round(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Round(Value), destination);
+        }
+
+        public readonly void Round(int digits, MidpointRounding mode, DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Round(Value, digits, mode), destination);
+        }
+
+        public readonly void Round(MidpointRounding mode, DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Round(Value, mode), destination);
+        }
+
+        public readonly void Floor(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Floor(Value), destination);
+        }
+
+        public readonly void Ceiling(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Ceiling(Value), destination);
+        }
+
+        public readonly void Truncate(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            WriteConstant(Math.Truncate(Value), destination);
+        }
+
+        /// <summary>
+        /// The neighbouring representable value. Within a binade the step is a constant, so this is
+        /// <c>x + c</c> and the derivatives survive it — unlike the piecewise-constant rounding above.
+        /// </summary>
+        public readonly void BitIncrement(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            _data.CopyTo(destination._data);
+            destination._data[0] = double.BitIncrement(Value);
+        }
+
+        /// <summary>The next representable value below, keeping the derivatives.</summary>
+        public readonly void BitDecrement(DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+            _data.CopyTo(destination._data);
+            destination._data[0] = double.BitDecrement(Value);
+        }
+
+        /// <summary>
+        /// Multiplies by <c>2^n</c>. Linear, so every coefficient scales with it; using ScaleB per
+        /// coefficient keeps the scaling exact.
+        /// </summary>
+        public readonly void ScaleB(int n, DDScalarSpan destination)
+        {
+            CheckDestination(this, destination);
+
+            for (int i = 0; i < _data.Length; i++) destination._data[i] = Math.ScaleB(_data[i], n);
+        }
+
+        #endregion
+
         #region Standard Operators (Dynamic DDScalar Fallback)
 
         public static DDScalar operator -(in DDScalarSpan a)
