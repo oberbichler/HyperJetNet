@@ -107,5 +107,16 @@ namespace HyperJet.Tests
             Assert.Equal(-0.1, HyperJetMath.Ieee754Remainder(a, b).Value, precision: 12);
             Assert.Equal(0.9, (a % b).Value, precision: 12);
         }
+
+        [Fact]
+        public void Example7_NestingBeyondSecondOrder()
+        {
+            DDScalar1<DDScalar1<double>> u =
+                DDScalar1<DDScalar1<double>>.Variable(0, DDScalar1<double>.Variable(0, 1.3));
+
+            DDScalar1<DDScalar1<double>> f = DDScalar1<DDScalar1<double>>.Sin(u);
+
+            Assert.Equal(Math.Sin(1.3), f.H(0, 0).H(0, 0), precision: 10);
+        }
     }
 }

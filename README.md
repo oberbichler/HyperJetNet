@@ -19,7 +19,8 @@
 1. **Static Compile-Time Structs (`DDScalar1` to `DDScalar15`)**:
    - Fully generated via **C# Source Generators** for up to 15 variables.
    - **100% Stack-allocated** (zero heap overhead, zero garbage collection impact).
-   - Seamlessly integrated with the **.NET Generic Math System** (`IFloatingPoint<T>`).
+   - Seamlessly integrated with the **.NET Generic Math System** (`IFloatingPointIeee754<T>`), so generic numeric code accepts them unchanged.
+   - **Nestable** for higher-order derivatives: `DDScalar1<DDScalar1<double>>` reaches the 4th derivative.
 2. **Ref Structs for Zero-Allocation (`DDScalarSpan`)**:
    - Allows dynamic, runtime-determined variable counts with zero heap allocations.
    - Operates directly on stack-allocated buffers (`stackalloc double[]`).
@@ -163,6 +164,22 @@ Console.WriteLine($"d/dx: {fma.G(0)}, d/dy: {fma.G(1)}, d2/dxdy: {fma.H(0, 1)}")
 // Unlike the % operator, the remainder rounds the quotient to nearest rather than towards zero.
 var (a, b) = DDScalar2<double>.Variables(5.9, 1.0);
 Console.WriteLine($"{Ieee754Remainder(a, b).Value} vs {(a % b).Value}"); // -0.1 vs 0.9
+```
+
+### 6. Beyond Second Order by Nesting
+
+Because the coefficient type only has to be an `IFloatingPointIeee754<T>`, and the scalars are one themselves, they can be nested. Each level contributes two orders:
+
+```csharp
+using Inner = HyperJet.DDScalar1<double>;
+using Outer = HyperJet.DDScalar1<HyperJet.DDScalar1<double>>;
+
+// Seed the same variable at both levels.
+Outer u = Outer.Variable(0, Inner.Variable(0, 1.3));
+
+Outer f = Outer.Sin(u);
+
+Console.WriteLine($"f''''(1.3) = {f.H(0, 0).H(0, 0)}"); // sin(1.3), since d⁴/dx⁴ sin = sin
 ```
 
 ---
