@@ -72,6 +72,11 @@ jobs:
           done
           echo "package contents complete"
 
+      # Compiling a fresh project against the package is the only check that the targets file above
+      # actually works rather than merely being present.
+      - name: Consume the package
+        run: eng/verify-package.sh artifacts
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
