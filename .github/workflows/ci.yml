@@ -8,10 +8,18 @@ on:
 
 jobs:
   build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.configuration }}
     runs-on: ${{ matrix.os }}
+
     strategy:
+      # Report every combination. With the default fail-fast the first failure cancels the rest,
+      # which shows up as a red job that never actually ran a test.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # Release is where the JIT inlines, folds the coefficient tags and takes the vectorized
+        # paths, so a Debug-only run leaves the configuration that ships untested.
+        configuration: [Debug, Release]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +28,52 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - run: dotnet restore
-      - run: dotnet build --no-restore
-      - run: dotnet test --no-build
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration ${{ matrix.configuration }}
+
+      - name: Test
+        run: dotnet test --no-build --configuration ${{ matrix.configuration }}
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack
+        run: dotnet pack src/HyperJet/HyperJet.csproj --configuration Release --output artifacts
+
+      # The generated scalars are compiled into the assembly, so what consumers additionally depend
+      # on is the targets file that restores the DDScalar2-style aliases on their side. Nothing else
+      # in the build would notice if it stopped being packed.
+      - name: Verify package contents
+        run: |
+          set -euo pipefail
+          unzip -o -q artifacts/HyperJet.*.nupkg -d artifacts/contents
+          for entry in \
+            lib/net10.0/HyperJet.dll \
+            lib/net10.0/HyperJet.xml \
+            README.md \
+            build/HyperJet.targets \
+            buildTransitive/HyperJet.targets
+          do
+            if [ ! -f "artifacts/contents/$entry" ]; then
+              echo "missing from package: $entry"
+              exit 1
+            fi
+          done
+          echo "package contents complete"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/*.nupkg
