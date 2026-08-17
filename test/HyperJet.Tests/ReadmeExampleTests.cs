@@ -76,5 +76,19 @@ namespace HyperJet.Tests
             // Only F.X couples r.Y into the z-component, and it is zero for this force.
             Assert.Equal(0.0, torqueZ.G(1), precision: 12);
         }
+
+        [Fact]
+        public void Example5_LocalQuadraticModel()
+        {
+            var (x, y) = DDScalar2<double>.Variables(1.0, 2.0);
+            DDScalar2<double> f = x * x + 3.0 * x * y + y * y;
+
+            Assert.Equal(11.0, f.Value, precision: 12);
+            Assert.Equal(10.39, f.Evaluate(0.1, -0.2), precision: 12);
+
+            // The README claims the expansion is exact here, so it must equal f(1.1, 1.8).
+            const double sx = 1.1, sy = 1.8;
+            Assert.Equal(sx * sx + 3.0 * sx * sy + sy * sy, f.Evaluate(0.1, -0.2), precision: 12);
+        }
     }
 }

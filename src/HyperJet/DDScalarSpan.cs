@@ -109,6 +109,24 @@ namespace HyperJet
             return h;
         }
 
+        /// <summary>
+        /// Evaluates the Taylor expansion of the represented function around the point it was
+        /// evaluated at: <c>f(x + d) = f(x) + grad(f) . d + 1/2 d^T H d</c>.
+        /// </summary>
+        /// <param name="d">The offset from the expansion point, one component per variable.</param>
+        /// <remarks>
+        /// For a 1st-order scalar the quadratic term is absent and this is the linear model. For a
+        /// function that is itself quadratic the 2nd-order expansion is exact; otherwise the error
+        /// is O(|d|^3). This is the local model used by a trust-region step or a line search.
+        /// </remarks>
+        public readonly double Evaluate(params ReadOnlySpan<double> d)
+        {
+            if (d.Length != _size)
+                throw new ArgumentException($"Expected {_size} offsets, got {d.Length}.", nameof(d));
+
+            return DDScalar.EvaluateTaylor(_data, d, _size, _order);
+        }
+
         #region Constructors and Factory Methods
 
         public DDScalarSpan(Span<double> data, int size, int order = 2)
