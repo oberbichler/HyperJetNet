@@ -585,6 +585,15 @@ namespace HyperJet
             return result;
         }
 
+        /// <summary>
+        /// Identical to <see cref="Ieee754Remainder(in DDScalar, in DDScalar)"/>. .NET carries this
+        /// function under two names — <see cref="Math.IEEERemainder"/> predates the naming guideline
+        /// that gave the generic-math surface <c>Ieee754Remainder</c> — and this facade mirrors
+        /// <see cref="Math"/>, so it offers the spelling a caller coming from there will reach for.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar IEEERemainder(in DDScalar a, in DDScalar b) => Ieee754Remainder(a, b);
+
         #endregion
 
         #region Value-Level Helpers

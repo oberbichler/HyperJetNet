@@ -174,7 +174,7 @@ The offsets can also be passed as a span (`f.Evaluate(d)`), which is what the dy
 
 ### 6. IEEE 754 Operations
 
-`FusedMultiplyAdd` computes `x * y + z` with a single rounding of the value, and `Ieee754Remainder` is `Math.IEEERemainder` under the name generic math uses — both differentiated exactly:
+`FusedMultiplyAdd` computes `x * y + z` with a single rounding of the value, and `Ieee754Remainder` is the IEEE 754 remainder — both differentiated exactly. .NET spells that second one two ways, `Math.IEEERemainder` and `Ieee754Remainder`, and the facade accepts either:
 
 ```csharp
 var (x, y, z) = DDScalar3<double>.Variables(1.7, -2.3, 0.9);
@@ -185,6 +185,7 @@ Console.WriteLine($"d/dx: {fma.G(0)}, d/dy: {fma.G(1)}, d2/dxdy: {fma.H(0, 1)}")
 // Unlike the % operator, the remainder rounds the quotient to nearest rather than towards zero.
 var (a, b) = DDScalar2<double>.Variables(5.9, 1.0);
 Console.WriteLine($"{Ieee754Remainder(a, b).Value} vs {(a % b).Value}"); // -0.1 vs 0.9
+Console.WriteLine($"{IEEERemainder(a, b).Value}");                      // -0.1, the System.Math spelling
 ```
 
 ### 7. Beyond Second Order by Nesting

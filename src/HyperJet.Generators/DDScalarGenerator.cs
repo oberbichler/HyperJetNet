@@ -110,6 +110,15 @@ namespace HyperJet.Generators
                 sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
                 sb.AppendLine($"        public static {type} Ieee754Remainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
                 sb.AppendLine();
+                sb.AppendLine("        /// <summary>");
+                sb.AppendLine("        /// Identical to <c>Ieee754Remainder</c>. .NET carries this function under two names --");
+                sb.AppendLine("        /// <c>Math.IEEERemainder</c> predates the naming guideline that gave the generic-math");
+                sb.AppendLine("        /// surface <c>Ieee754Remainder</c> -- and this facade mirrors <c>System.Math</c>, so it");
+                sb.AppendLine("        /// offers the spelling a caller coming from there will reach for.");
+                sb.AppendLine("        /// </summary>");
+                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                sb.AppendLine($"        public static {type} IEEERemainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
+                sb.AppendLine();
                 sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
                 sb.AppendLine($"        public static {type} FusedMultiplyAdd<T>(in {type} x, in {type} y, in {type} z) {where} => {type}.FusedMultiplyAdd(x, y, z);");
                 sb.AppendLine();
