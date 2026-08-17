@@ -2,9 +2,9 @@
 // builds" and "the package is usable" stop being the same claim.
 //
 // The part nothing else exercises is build/HyperJet.targets: the generator's `global using`
-// directives only apply inside HyperJet's own compilation, so the unqualified DDScalar2
-// spelling a consumer sees comes from that file. If it stopped being packed, or listed
-// the wrong types, every other check in this repository would still pass.
+// directives only apply inside HyperJet's own compilation, so the unqualified DDScalar2 and
+// DScalar3 spellings a consumer sees come from that file. If it stopped being packed, or
+// listed the wrong types, every other check in this repository would still pass.
 
 using static HyperJet.HyperJetMath;
 
@@ -27,6 +27,14 @@ Check("DDScalar2 value", -6.0, f.Value);
 Check("DDScalar2 df/dx", -4.0, f.G(0));
 Check("DDScalar2 d2f/dx2", -8.0 / 3.0, f.H(0, 0));
 
+// First-order family, likewise unqualified. Its aliases are the newest entries in the targets
+// file and so the ones most likely to have been forgotten.
+var (a, b, c) = DScalar3.Variables(1.0, 2.0, 3.0);
+DScalar3 g = a * b * c;
+Check("DScalar3 value", 6.0, g.Value);
+Check("DScalar3 dg/da", 6.0, g.G(0));
+Check("DScalar3 coefficients", 4.0, DScalar3.DataLength);
+
 // The free-function facade, which a consumer imports themselves.
 Check("Sin via the facade", Math.Sin(1.0), Sin(DDScalar2.Variable(0, 1.0)).Value);
 
@@ -34,6 +42,8 @@ Check("Sin via the facade", Math.Sin(1.0), Sin(DDScalar2.Variable(0, 1.0)).Value
 DDScalar[] v = DDScalar.Variables(new[] { 1.5, 2.5 });
 Check("DDScalar value", 3.75, (v[0] * v[1]).Value);
 Check("Kernel data length", 6.0, HyperJet.Kernel.GetDataLength(2, 2));
+Check("IEEERemainder via the facade", Math.IEEERemainder(5.9, 1.0),
+      IEEERemainder(DDScalar2.Variable(0, 5.9), DDScalar2.Constant(1.0)).Value);
 
 // The local Taylor model, which was missing from the package until recently.
 Check("Evaluate", f.Evaluate(0.0, 0.0), f.Value);
