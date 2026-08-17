@@ -16,8 +16,9 @@
 
 ### 🛠️ Three Tailored Computational Models
 
-1. **Static Compile-Time Structs (`DDScalar1` to `DDScalar15`)**:
+1. **Static Compile-Time Structs (`DDScalar1` to `DDScalar15`, `DScalar1` to `DScalar15`)**:
    - Fully generated via **C# Source Generators** for up to 15 variables.
+   - **Pick the order you pay for**: `DDScalar{n}` carries value, gradient and Hessian; `DScalar{n}` carries value and gradient only. At 15 variables that is 16 coefficients instead of 136.
    - **100% Stack-allocated** (zero heap overhead, zero garbage collection impact).
    - Seamlessly integrated with the **.NET Generic Math System** (`IFloatingPointIeee754<T>`), so generic numeric code accepts them unchanged.
    - **Nestable** for higher-order derivatives: `DDScalar1<DDScalar1<double>>` reaches the 4th derivative.
@@ -73,7 +74,27 @@ Console.WriteLine($"First derivative df/dx: {f.G(0)}");   // -4.0
 Console.WriteLine($"Second derivative d²f/dx²: {f.H(0, 0)}"); // -2.666666667
 ```
 
-### 2. Zero-Allocation AD on the Stack with `DDScalarSpan`
+### 2. Gradient Only, at First Order
+
+When the Hessian is not needed — a gradient-based optimiser, a sensitivity study — `DScalar{n}` is the same API without the second-order half. It is written identically, so switching is a change of type:
+
+```csharp
+var (x, y) = DScalar2<double>.Variables(3.0, 6.0);
+
+DScalar2<double> f = (x * y) / (x - y);
+
+Console.WriteLine($"f: {f.Value}, df/dx: {f.G(0)}");  // -6.0, -4.0
+// f.H(0, 0) does not exist: there is no Hessian to read, and none was computed.
+```
+
+The saving grows with the variable count, because the second-order block is quadratic in it. At ten variables, on the same expression and with neither allocating:
+
+| | Coefficients | Mean |
+| --- | ---: | ---: |
+| `DDScalar10<double>` | 66 | 409 ns |
+| `DScalar10<double>` | 11 | **54 ns** |
+
+### 3. Zero-Allocation AD on the Stack with `DDScalarSpan`
 
 Ideal for maximum performance with runtime-dynamic variable counts (0 bytes of heap allocation):
 
@@ -100,7 +121,7 @@ Console.WriteLine($"Value: {result.Value}"); // Math.Sin(3.0)
 Console.WriteLine($"df/dx: {result.G(0)}"); // Math.Cos(3.0)
 ```
 
-### 3. Generic Physics & Geometrical Operations with `Vector3D<T>`
+### 4. Generic Physics & Geometrical Operations with `Vector3D<T>`
 
 Written once, this generic code runs with standard double-precision floats for physical simulation, or with DDScalar for automatic differentiation:
 
@@ -132,7 +153,7 @@ Console.WriteLine($"Z-torque: {torqueZ.Value}");                        // 20.0
 Console.WriteLine($"Lever-arm sensitivity on Z-torque: {torqueZ.G(0)}"); // 10.0
 ```
 
-### 4. Local Quadratic Model with `Evaluate`
+### 5. Local Quadratic Model with `Evaluate`
 
 Gradient and Hessian are rarely the end goal — usually you want the quadratic model they define, to take a trust-region step or probe a line search. `Evaluate` applies it directly, on every model:
 
@@ -151,7 +172,7 @@ Console.WriteLine($"model at d = (0.1, -0.2): {f.Evaluate(0.1, -0.2)}"); // 10.3
 
 The offsets can also be passed as a span (`f.Evaluate(d)`), which is what the dynamic `DDScalar` and the zero-allocation `DDScalarSpan` use. First-order scalars evaluate the linear model instead.
 
-### 5. IEEE 754 Operations
+### 6. IEEE 754 Operations
 
 `FusedMultiplyAdd` computes `x * y + z` with a single rounding of the value, and `Ieee754Remainder` is `Math.IEEERemainder` under the name generic math uses — both differentiated exactly:
 
@@ -166,7 +187,7 @@ var (a, b) = DDScalar2<double>.Variables(5.9, 1.0);
 Console.WriteLine($"{Ieee754Remainder(a, b).Value} vs {(a % b).Value}"); // -0.1 vs 0.9
 ```
 
-### 6. Beyond Second Order by Nesting
+### 7. Beyond Second Order by Nesting
 
 Because the coefficient type only has to be an `IFloatingPointIeee754<T>`, and the scalars are one themselves, they can be nested. Each level contributes two orders:
 

@@ -16,5 +16,20 @@
     <Using Include="HyperJet.DDScalar13&lt;System.Double&gt;" Alias="DDScalar13" />
     <Using Include="HyperJet.DDScalar14&lt;System.Double&gt;" Alias="DDScalar14" />
     <Using Include="HyperJet.DDScalar15&lt;System.Double&gt;" Alias="DDScalar15" />
+    <Using Include="HyperJet.DScalar1&lt;System.Double&gt;" Alias="DScalar1" />
+    <Using Include="HyperJet.DScalar2&lt;System.Double&gt;" Alias="DScalar2" />
+    <Using Include="HyperJet.DScalar3&lt;System.Double&gt;" Alias="DScalar3" />
+    <Using Include="HyperJet.DScalar4&lt;System.Double&gt;" Alias="DScalar4" />
+    <Using Include="HyperJet.DScalar5&lt;System.Double&gt;" Alias="DScalar5" />
+    <Using Include="HyperJet.DScalar6&lt;System.Double&gt;" Alias="DScalar6" />
+    <Using Include="HyperJet.DScalar7&lt;System.Double&gt;" Alias="DScalar7" />
+    <Using Include="HyperJet.DScalar8&lt;System.Double&gt;" Alias="DScalar8" />
+    <Using Include="HyperJet.DScalar9&lt;System.Double&gt;" Alias="DScalar9" />
+    <Using Include="HyperJet.DScalar10&lt;System.Double&gt;" Alias="DScalar10" />
+    <Using Include="HyperJet.DScalar11&lt;System.Double&gt;" Alias="DScalar11" />
+    <Using Include="HyperJet.DScalar12&lt;System.Double&gt;" Alias="DScalar12" />
+    <Using Include="HyperJet.DScalar13&lt;System.Double&gt;" Alias="DScalar13" />
+    <Using Include="HyperJet.DScalar14&lt;System.Double&gt;" Alias="DScalar14" />
+    <Using Include="HyperJet.DScalar15&lt;System.Double&gt;" Alias="DScalar15" />
   </ItemGroup>
 </Project>

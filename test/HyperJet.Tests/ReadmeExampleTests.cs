@@ -23,7 +23,7 @@ namespace HyperJet.Tests
         }
 
         [Fact]
-        public void Example2_ZeroAllocationSpan()
+        public void Example3_ZeroAllocationSpan()
         {
             int size = 2;
             int dataLength = Kernel.GetDataLength(size, order: 2);
@@ -44,7 +44,25 @@ namespace HyperJet.Tests
         }
 
         [Fact]
-        public void Example3_TupleDeconstruction()
+        public void Example2_GradientOnlyAtFirstOrder()
+        {
+            var (x, y) = DScalar2<double>.Variables(3.0, 6.0);
+
+            DScalar2<double> f = (x * y) / (x - y);
+
+            Assert.Equal(-6.0, f.Value, precision: 9);
+            Assert.Equal(-4.0, f.G(0), precision: 9);
+
+            // The README claims there is no Hessian to read.
+            Assert.Null(typeof(DScalar2<double>).GetMethod("H"));
+
+            // And the coefficient counts the table quotes.
+            Assert.Equal(66, DDScalar10<double>.DataLength);
+            Assert.Equal(11, DScalar10<double>.DataLength);
+        }
+
+        [Fact]
+        public void KeyFeatures_TupleDeconstruction()
         {
             var (x, y, z) = DDScalar.Variables(new double[] { 1.5, 3.0, 4.5 });
 

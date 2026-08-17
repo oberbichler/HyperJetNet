@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using System.Text;
@@ -18,15 +19,19 @@ namespace HyperJet.Generators
                 for (int n = 1; n <= 15; n++)
                 {
                     usingsBuilder.AppendLine($"global using DDScalar{n} = HyperJet.DDScalar{n}<double>;");
+                    usingsBuilder.AppendLine($"global using DScalar{n} = HyperJet.DScalar{n}<double>;");
                 }
                 postInitContext.AddSource("GlobalUsings.g.cs", usingsBuilder.ToString());
 
-                // Generate DDScalar1<T> to DDScalar15<T> structs
+                // Generate DDScalar1<T>..DDScalar15<T> (value, gradient and Hessian) and
+                // DScalar1<T>..DScalar15<T> (value and gradient only) from the same template.
                 for (int n = 1; n <= 15; n++)
                 {
-                    string source = GenerateDDScalarStruct(n);
-                    postInitContext.AddSource($"DDScalar{n}.g.cs", source);
+                    postInitContext.AddSource($"DDScalar{n}.g.cs", GenerateScalarStruct(n, order: 2));
+                    postInitContext.AddSource($"DScalar{n}.g.cs", GenerateScalarStruct(n, order: 1));
                 }
+
+                postInitContext.AddSource("Buffers.g.cs", GenerateBuffers());
 
                 // Generate the HyperJetMath free-function overloads for every dimension
                 postInitContext.AddSource("HyperJetMath.Static.g.cs", GenerateHyperJetMathOverloads());
@@ -68,12 +73,13 @@ namespace HyperJet.Generators
             sb.AppendLine("    public static partial class HyperJetMath");
             sb.AppendLine("    {");
 
+            foreach (string family in new[] { "DDScalar", "DScalar" })
             for (int n = 1; n <= 15; n++)
             {
-                string type = $"DDScalar{n}<T>";
+                string type = $"{family}{n}<T>";
                 const string where = "where T : IFloatingPointIeee754<T>";
 
-                sb.AppendLine($"        #region DDScalar{n} Functions");
+                sb.AppendLine($"        #region {family}{n} Functions");
                 sb.AppendLine();
 
                 foreach (string name in UnaryFunctions)
@@ -160,113 +166,30 @@ namespace HyperJet.Generators
             return names;
         }
 
-        private string GenerateDDScalarStruct(int n)
+        /// <summary>
+        /// Emits one scalar struct. <paramref name="order"/> selects the family: second order
+        /// (<c>DDScalar{n}</c>, value + gradient + Hessian) or first order (<c>DScalar{n}</c>,
+        /// value + gradient). Both come from this one template so the derivative formulas exist once.
+        /// </summary>
+        private string GenerateScalarStruct(int n, int order)
         {
             int size = n;
-            int dataLength = (n + 1) * (n + 2) / 2;
+            bool secondOrder = order == 2;
+            string scalar = secondOrder ? $"DDScalar{n}" : $"DScalar{n}";
+            int dataLength = secondOrder ? (n + 1) * (n + 2) / 2 : n + 1;
 
-            var variableNames = GetVariableNames(n);
+            // A line that only a second-order scalar needs. The kernels ignore the second-derivative
+            // coefficients when order is 1, so computing them there would be dead work -- and for
+            // Pow or RootN that dead work is a call to Pow.
+            string D2(string name, string expr) => secondOrder ? $"            T {name} = {expr};\n" : "";
 
-            // ToString has to enumerate this dimension's coefficients. Spelling it out for two
-            // variables made DDScalar1 throw from G(1) and every dimension above two print a
-            // truncated gradient and Hessian.
-            string gradientText = string.Join(", ", Enumerable.Range(0, n).Select(i => $"{{G({i})}}"));
-            string hessianText = string.Join(", ", Enumerable.Range(0, n).Select(i =>
-                "(" + string.Join(", ", Enumerable.Range(0, n).Select(j => $"{{H({i}, {j})}}")) + ")"));
+            // The matching argument. The coefficient type stays as it is: at order 1 the kernel
+            // returns before it is read, and keeping the type shares the generic instantiation with
+            // the second-order family instead of doubling it.
+            string A2(string argument) => secondOrder ? argument : "default";
 
-            // A fixed-arity companion to Evaluate(ReadOnlySpan<T>), so that passing the wrong number
-            // of offsets to a compile-time-sized scalar is a compile error rather than a throw. The
-            // span local makes the target overload unambiguous; it is stack-allocated.
-            var offsetParameters = string.Join(", ", Enumerable.Range(0, n).Select(i => $"T d{i}"));
-            var offsetElements = string.Join(", ", Enumerable.Range(0, n).Select(i => $"d{i}"));
-            string evaluateOverload = $@"        /// <summary>
-        /// Evaluates the second-order Taylor expansion around the point this value was computed at.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly T Evaluate({offsetParameters})
-        {{{{
-            ReadOnlySpan<T> d = [{offsetElements}];
-            return Evaluate(d);
-        }}}}";
-
-            string variablesFactory;
-            if (n == 1)
-            {
-                variablesFactory = @"
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar1<T> Variables(T xVal)
-        {
-            return Variable(0, xVal);
-        }
-";
-            }
-            else
-            {
-                var paramsList = string.Join(", ", variableNames.Select(v => $"T {v}Val"));
-                var tupleTypes = string.Join(", ", variableNames.Select(v => $"DDScalar{n}<T> {v}"));
-                var returnValues = string.Join(", ", variableNames.Select((v, idx) => $"Variable({idx}, {v}Val)"));
-                variablesFactory = $@"
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ({tupleTypes}) Variables({paramsList})
-        {{
-            return ({returnValues});
-        }}
-";
-            }
-
-            return $@"// <auto-generated />
-#nullable enable
-using System;
-using System.Globalization;
-using System.Numerics;
-using System.Runtime.CompilerServices;
-
-namespace HyperJet
-{{
-    /// <summary>
-    /// Represents a 2nd order dual number with {n} static variables (Zero-Allocation, Stack-Allocated).
-    /// </summary>
-    public struct DDScalar{n}<T> : 
-        IFloatingPointIeee754<DDScalar{n}<T>>,
-        ITrigonometricFunctions<DDScalar{n}<T>>,
-        IExponentialFunctions<DDScalar{n}<T>>,
-        IHyperbolicFunctions<DDScalar{n}<T>>,
-        ILogarithmicFunctions<DDScalar{n}<T>>,
-        IPowerFunctions<DDScalar{n}<T>>,
-        IRootFunctions<DDScalar{n}<T>>
-        where T : IFloatingPointIeee754<T>
-    {{
-        public const int Size = {size};
-        public const int Order = 2;
-        public const int DataLength = {dataLength};
-
-        private Buffer{dataLength}<T> _data;
-
-        public T Value
-        {{
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            readonly get => _data[0];
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            set => _data[0] = value;
-        }}
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly T G(int i)
-        {{
-            if (i < 0 || i >= Size)
-                throw new ArgumentOutOfRangeException(nameof(i));
-            return _data[1 + i];
-        }}
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetG(int i, T value)
-        {{
-            if (i < 0 || i >= Size)
-                throw new ArgumentOutOfRangeException(nameof(i));
-            _data[1 + i] = value;
-        }}
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            // A first-order scalar stores no Hessian, so it exposes no way to read one.
+            string hessianAccessors = !secondOrder ? "" : $@"        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly T H(int i, int j)
         {{
             if (i < 0 || i >= Size) throw new ArgumentOutOfRangeException(nameof(i));
@@ -299,7 +222,147 @@ namespace HyperJet
             }}
         }}
 
+";
+
+            string hessianExport = !secondOrder ? "" : $@"        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T[,] GetHessian()
+        {{
+            T[,] h = new T[Size, Size];
+            for (int i = 0; i < Size; i++)
+                for (int j = 0; j < Size; j++)
+                    h[i, j] = H(i, j);
+            return h;
+        }}
+
+";
+
+            // Without a Hessian the Taylor expansion degenerates to the linear model.
+            string quadraticTerm = !secondOrder ? "" : $@"            // The Hessian is stored as the upper triangle in row order, so a single pass reaches
+            // H[i,i] first and then H[i,j] for j > i. Each off-diagonal coefficient stands for two
+            // symmetric terms of the quadratic form, which is exactly what cancels the one half.
+            T half = T.One / (T.One + T.One);
+
+            int k = 1 + Size;
+            for (int i = 0; i < Size; i++)
+            {{
+                T di = d[i];
+                result += half * data[k++] * di * di;
+
+                for (int j = i + 1; j < Size; j++)
+                {{
+                    result += data[k++] * di * d[j];
+                }}
+            }}
+
+";
+
+            string orderText = secondOrder
+                ? "2nd order (value, gradient and Hessian)"
+                : "1st order (value and gradient)";
+            string variableWord = n == 1 ? "variable" : "variables";
+
+            var variableNames = GetVariableNames(n);
+
+            // ToString has to enumerate this dimension's coefficients. Spelling it out for two
+            // variables made DDScalar1 throw from G(1) and every dimension above two print a
+            // truncated gradient and Hessian.
+            string gradientText = string.Join(", ", Enumerable.Range(0, n).Select(i => $"{{G({i})}}"));
+            string hessianText = !secondOrder ? "" : ", H: (" + string.Join(", ", Enumerable.Range(0, n).Select(i =>
+                "(" + string.Join(", ", Enumerable.Range(0, n).Select(j => $"{{H({i}, {j})}}")) + ")")) + ")";
+
+            // A fixed-arity companion to Evaluate(ReadOnlySpan<T>), so that passing the wrong number
+            // of offsets to a compile-time-sized scalar is a compile error rather than a throw. The
+            // span local makes the target overload unambiguous; it is stack-allocated.
+            var offsetParameters = string.Join(", ", Enumerable.Range(0, n).Select(i => $"T d{i}"));
+            var offsetElements = string.Join(", ", Enumerable.Range(0, n).Select(i => $"d{i}"));
+            string evaluateOverload = $@"        /// <summary>
+        /// Evaluates the second-order Taylor expansion around the point this value was computed at.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T Evaluate({offsetParameters})
+        {{
+            ReadOnlySpan<T> d = [{offsetElements}];
+            return Evaluate(d);
+        }}";
+
+            string variablesFactory;
+            if (n == 1)
+            {
+                variablesFactory = $@"
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static {scalar}<T> Variables(T xVal)
+        {{
+            return Variable(0, xVal);
+        }}
+";
+            }
+            else
+            {
+                var paramsList = string.Join(", ", variableNames.Select(v => $"T {v}Val"));
+                var tupleTypes = string.Join(", ", variableNames.Select(v => $"{scalar}<T> {v}"));
+                var returnValues = string.Join(", ", variableNames.Select((v, idx) => $"Variable({idx}, {v}Val)"));
+                variablesFactory = $@"
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ({tupleTypes}) Variables({paramsList})
+        {{
+            return ({returnValues});
+        }}
+";
+            }
+
+            return $@"// <auto-generated />
+#nullable enable
+using System;
+using System.Globalization;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+
+namespace HyperJet
+{{
+    /// <summary>
+    /// Represents a {orderText} dual number with {n} static {variableWord} (Zero-Allocation, Stack-Allocated).
+    /// </summary>
+    public struct {scalar}<T> : 
+        IFloatingPointIeee754<{scalar}<T>>,
+        ITrigonometricFunctions<{scalar}<T>>,
+        IExponentialFunctions<{scalar}<T>>,
+        IHyperbolicFunctions<{scalar}<T>>,
+        ILogarithmicFunctions<{scalar}<T>>,
+        IPowerFunctions<{scalar}<T>>,
+        IRootFunctions<{scalar}<T>>
+        where T : IFloatingPointIeee754<T>
+    {{
+        public const int Size = {size};
+        public const int Order = {order};
+        public const int DataLength = {dataLength};
+
+        private Buffer{dataLength}<T> _data;
+
+        public T Value
+        {{
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            readonly get => _data[0];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => _data[0] = value;
+        }}
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T G(int i)
+        {{
+            if (i < 0 || i >= Size)
+                throw new ArgumentOutOfRangeException(nameof(i));
+            return _data[1 + i];
+        }}
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SetG(int i, T value)
+        {{
+            if (i < 0 || i >= Size)
+                throw new ArgumentOutOfRangeException(nameof(i));
+            _data[1 + i] = value;
+        }}
+
+{hessianAccessors}        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<T> AsSpan()
         {{
             return System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref Unsafe.As<Buffer{dataLength}<T>, T>(ref _data), DataLength);
@@ -326,17 +389,7 @@ namespace HyperJet
             for (int i = 0; i < Size; i++) destination[i] = G(i);
         }}
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly T[,] GetHessian()
-        {{
-            T[,] h = new T[Size, Size];
-            for (int i = 0; i < Size; i++)
-                for (int j = 0; j < Size; j++)
-                    h[i, j] = H(i, j);
-            return h;
-        }}
-
-        /// <summary>
+{hessianExport}        /// <summary>
         /// Evaluates the second-order Taylor expansion of the represented function around the point
         /// it was evaluated at: <c>f(x + d) = f(x) + grad(f) . d + 1/2 d^T H d</c>.
         /// </summary>
@@ -351,8 +404,6 @@ namespace HyperJet
                 throw new ArgumentException($""Expected {{Size}} offsets, got {{d.Length}}."", nameof(d));
 
             ReadOnlySpan<T> data = AsReadOnlySpan();
-            T half = T.One / (T.One + T.One);
-
             T result = data[0];
 
             for (int i = 0; i < Size; i++)
@@ -360,22 +411,7 @@ namespace HyperJet
                 result += data[1 + i] * d[i];
             }}
 
-            // The Hessian is stored as the upper triangle in row order, so a single pass reaches
-            // H[i,i] first and then H[i,j] for j > i. Each off-diagonal coefficient stands for two
-            // symmetric terms of the quadratic form, which is exactly what cancels the one half.
-            int k = 1 + Size;
-            for (int i = 0; i < Size; i++)
-            {{
-                T di = d[i];
-                result += half * data[k++] * di * di;
-
-                for (int j = i + 1; j < Size; j++)
-                {{
-                    result += data[k++] * di * d[j];
-                }}
-            }}
-
-            return result;
+{quadraticTerm}            return result;
         }}
 
 {evaluateOverload}
@@ -383,25 +419,25 @@ namespace HyperJet
         #region Constructors and Factory Methods
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public DDScalar{n}(T value)
+        public {scalar}(T value)
         {{
             _data = default;
             _data[0] = value;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> Constant(T value)
+        public static {scalar}<T> Constant(T value)
         {{
-            return new DDScalar{n}<T>(value);
+            return new {scalar}<T>(value);
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> Variable(int index, T value)
+        public static {scalar}<T> Variable(int index, T value)
         {{
             if (index < 0 || index >= Size)
                 throw new ArgumentOutOfRangeException(nameof(index));
 
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             result.Value = value;
             result.SetG(index, T.One);
             return result;
@@ -414,9 +450,9 @@ namespace HyperJet
         #region Operators
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator -(DDScalar{n}<T> a)
+        public static {scalar}<T> operator -({scalar}<T> a)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             for (int i = 0; i < DataLength; i++)
             {{
                 result._data[i] = -a._data[i];
@@ -425,9 +461,9 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator +(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator +({scalar}<T> a, {scalar}<T> b)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, OneCoeff<T>, OneCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), a.Value + b.Value,
                 default, default, default, default, default,
@@ -436,20 +472,20 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator +(DDScalar{n}<T> a, T b)
+        public static {scalar}<T> operator +({scalar}<T> a, T b)
         {{
-            DDScalar{n}<T> result = a;
+            {scalar}<T> result = a;
             result.Value += b;
             return result;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator +(T a, DDScalar{n}<T> b) => b + a;
+        public static {scalar}<T> operator +(T a, {scalar}<T> b) => b + a;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator -(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator -({scalar}<T> a, {scalar}<T> b)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, OneCoeff<T>, MinusOneCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), a.Value - b.Value,
                 default, default, default, default, default,
@@ -458,17 +494,17 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator -(DDScalar{n}<T> a, T b)
+        public static {scalar}<T> operator -({scalar}<T> a, T b)
         {{
-            DDScalar{n}<T> result = a;
+            {scalar}<T> result = a;
             result.Value -= b;
             return result;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator -(T a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator -(T a, {scalar}<T> b)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, MinusOneCoeff<T>, ZeroCoeff<T>>(
                 b.AsReadOnlySpan(), a - b.Value, default, default,
                 result.AsSpan(), Size, Order);
@@ -476,9 +512,9 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator *(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator *({scalar}<T> a, {scalar}<T> b)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>, ZeroCoeff<T>, OneCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), a.Value * b.Value,
                 new ValueCoeff<T>(b.Value), new ValueCoeff<T>(a.Value), default, default, default,
@@ -487,9 +523,9 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator *(DDScalar{n}<T> a, T b)
+        public static {scalar}<T> operator *({scalar}<T> a, T b)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), a.Value * b, new ValueCoeff<T>(b), default,
                 result.AsSpan(), Size, Order);
@@ -497,46 +533,43 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator *(T a, DDScalar{n}<T> b) => b * a;
+        public static {scalar}<T> operator *(T a, {scalar}<T> b) => b * a;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator /(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator /({scalar}<T> a, {scalar}<T> b)
         {{
             T tmp = T.One / b.Value;
             T f = a.Value * tmp;
             T da = tmp;
             T db = -a.Value * tmp * tmp;
-            T dab = -tmp * tmp;
-            T dbb = T.CreateChecked(2.0) * a.Value * tmp * tmp * tmp;
-
-            DDScalar{n}<T> result = default;
+{D2("dab", "-tmp * tmp")}{D2("dbb", "T.CreateChecked(2.0) * a.Value * tmp * tmp * tmp")}
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>, ZeroCoeff<T>, ValueCoeff<T>, ValueCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
-                new ValueCoeff<T>(da), new ValueCoeff<T>(db), default, new ValueCoeff<T>(dab), new ValueCoeff<T>(dbb),
+                new ValueCoeff<T>(da), new ValueCoeff<T>(db), default, {A2("new ValueCoeff<T>(dab)")}, {A2("new ValueCoeff<T>(dbb)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator /(DDScalar{n}<T> a, T b) => a * (T.One / b);
+        public static {scalar}<T> operator /({scalar}<T> a, T b) => a * (T.One / b);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator /(T a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator /(T a, {scalar}<T> b)
         {{
             T tmp = T.One / b.Value;
             T f = a * tmp;
             T db = -a * tmp * tmp;
-            T dbb = T.CreateChecked(2.0) * a * tmp * tmp * tmp;
-
-            DDScalar{n}<T> result = default;
+{D2("dbb", "T.CreateChecked(2.0) * a * tmp * tmp * tmp")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                b.AsReadOnlySpan(), f, new ValueCoeff<T>(db), new ValueCoeff<T>(dbb),
+                b.AsReadOnlySpan(), f, new ValueCoeff<T>(db), {A2("new ValueCoeff<T>(dbb)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator %(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> operator %({scalar}<T> a, {scalar}<T> b)
         {{
             // C# defines a % b as a - b * truncate(a / b) — the quotient is rounded towards zero,
             // not downwards, so Truncate (and not Floor) yields the derivative with respect to b.
@@ -544,7 +577,7 @@ namespace HyperJet
             T f = a.Value % b.Value;
             T db = -k;
 
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, OneCoeff<T>, ValueCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
                 default, new ValueCoeff<T>(db), default, default, default,
@@ -553,16 +586,16 @@ namespace HyperJet
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator +(DDScalar{n}<T> a) => a;
+        public static {scalar}<T> operator +({scalar}<T> a) => a;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator ++(DDScalar{n}<T> a) => a + T.One;
+        public static {scalar}<T> operator ++({scalar}<T> a) => a + T.One;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static DDScalar{n}<T> operator --(DDScalar{n}<T> a) => a - T.One;
+        public static {scalar}<T> operator --({scalar}<T> a) => a - T.One;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static implicit operator DDScalar{n}<T>(T value)
+        public static implicit operator {scalar}<T>(T value)
         {{
             return Constant(value);
         }}
@@ -572,62 +605,62 @@ namespace HyperJet
         #region Comparisons
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator ==(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value == b.Value;
+        public static bool operator ==({scalar}<T> a, {scalar}<T> b) => a.Value == b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator !=(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value != b.Value;
+        public static bool operator !=({scalar}<T> a, {scalar}<T> b) => a.Value != b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value < b.Value;
+        public static bool operator <({scalar}<T> a, {scalar}<T> b) => a.Value < b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value > b.Value;
+        public static bool operator >({scalar}<T> a, {scalar}<T> b) => a.Value > b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <=(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value <= b.Value;
+        public static bool operator <=({scalar}<T> a, {scalar}<T> b) => a.Value <= b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >=(DDScalar{n}<T> a, DDScalar{n}<T> b) => a.Value >= b.Value;
+        public static bool operator >=({scalar}<T> a, {scalar}<T> b) => a.Value >= b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator ==(DDScalar{n}<T> a, T b) => a.Value == b;
+        public static bool operator ==({scalar}<T> a, T b) => a.Value == b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator !=(DDScalar{n}<T> a, T b) => a.Value != b;
+        public static bool operator !=({scalar}<T> a, T b) => a.Value != b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <(DDScalar{n}<T> a, T b) => a.Value < b;
+        public static bool operator <({scalar}<T> a, T b) => a.Value < b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >(DDScalar{n}<T> a, T b) => a.Value > b;
+        public static bool operator >({scalar}<T> a, T b) => a.Value > b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <=(DDScalar{n}<T> a, T b) => a.Value <= b;
+        public static bool operator <=({scalar}<T> a, T b) => a.Value <= b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >=(DDScalar{n}<T> a, T b) => a.Value >= b;
+        public static bool operator >=({scalar}<T> a, T b) => a.Value >= b;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator ==(T a, DDScalar{n}<T> b) => a == b.Value;
+        public static bool operator ==(T a, {scalar}<T> b) => a == b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator !=(T a, DDScalar{n}<T> b) => a != b.Value;
+        public static bool operator !=(T a, {scalar}<T> b) => a != b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <(T a, DDScalar{n}<T> b) => a < b.Value;
+        public static bool operator <(T a, {scalar}<T> b) => a < b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >(T a, DDScalar{n}<T> b) => a > b.Value;
+        public static bool operator >(T a, {scalar}<T> b) => a > b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator <=(T a, DDScalar{n}<T> b) => a <= b.Value;
+        public static bool operator <=(T a, {scalar}<T> b) => a <= b.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator >=(T a, DDScalar{n}<T> b) => a >= b.Value;
+        public static bool operator >=(T a, {scalar}<T> b) => a >= b.Value;
 
-        public override readonly bool Equals(object? obj) => obj is DDScalar{n}<T> other && this == other;
+        public override readonly bool Equals(object? obj) => obj is {scalar}<T> other && this == other;
 
-        public readonly bool Equals(DDScalar{n}<T> other) => Value == other.Value;
+        public readonly bool Equals({scalar}<T> other) => Value == other.Value;
 
         public override readonly int GetHashCode() => Value is null ? 0 : Value.GetHashCode();
 
@@ -635,33 +668,33 @@ namespace HyperJet
 
         #region Generic Math Support (IFloatingPoint etc.)
 
-        public static DDScalar{n}<T> AdditiveIdentity => new DDScalar{n}<T>(T.Zero);
-        public static DDScalar{n}<T> MultiplicativeIdentity => new DDScalar{n}<T>(T.One);
+        public static {scalar}<T> AdditiveIdentity => new {scalar}<T>(T.Zero);
+        public static {scalar}<T> MultiplicativeIdentity => new {scalar}<T>(T.One);
 
-        public static DDScalar{n}<T> One => new DDScalar{n}<T>(T.One);
-        public static DDScalar{n}<T> Zero => new DDScalar{n}<T>(T.Zero);
-        public static DDScalar{n}<T> NegativeOne => new DDScalar{n}<T>(-T.One);
+        public static {scalar}<T> One => new {scalar}<T>(T.One);
+        public static {scalar}<T> Zero => new {scalar}<T>(T.Zero);
+        public static {scalar}<T> NegativeOne => new {scalar}<T>(-T.One);
 
-        public static DDScalar{n}<T> E => new DDScalar{n}<T>(T.E);
-        public static DDScalar{n}<T> Pi => new DDScalar{n}<T>(T.Pi);
-        public static DDScalar{n}<T> Tau => new DDScalar{n}<T>(T.Tau);
+        public static {scalar}<T> E => new {scalar}<T>(T.E);
+        public static {scalar}<T> Pi => new {scalar}<T>(T.Pi);
+        public static {scalar}<T> Tau => new {scalar}<T>(T.Tau);
 
         // IEEE 754 special values. Like every other constant these carry no derivatives.
-        public static DDScalar{n}<T> Epsilon => new DDScalar{n}<T>(T.Epsilon);
-        public static DDScalar{n}<T> NaN => new DDScalar{n}<T>(T.NaN);
-        public static DDScalar{n}<T> PositiveInfinity => new DDScalar{n}<T>(T.PositiveInfinity);
-        public static DDScalar{n}<T> NegativeInfinity => new DDScalar{n}<T>(T.NegativeInfinity);
-        public static DDScalar{n}<T> NegativeZero => new DDScalar{n}<T>(T.NegativeZero);
+        public static {scalar}<T> Epsilon => new {scalar}<T>(T.Epsilon);
+        public static {scalar}<T> NaN => new {scalar}<T>(T.NaN);
+        public static {scalar}<T> PositiveInfinity => new {scalar}<T>(T.PositiveInfinity);
+        public static {scalar}<T> NegativeInfinity => new {scalar}<T>(T.NegativeInfinity);
+        public static {scalar}<T> NegativeZero => new {scalar}<T>(T.NegativeZero);
 
         public static int Radix => 2;
 
         public readonly int CompareTo(object? obj)
         {{
-            if (obj is DDScalar{n}<T> other) return Value.CompareTo(other.Value);
+            if (obj is {scalar}<T> other) return Value.CompareTo(other.Value);
             throw new ArgumentException(""Object is not a DDScalar"");
         }}
 
-        public readonly int CompareTo(DDScalar{n}<T> other) => Value.CompareTo(other.Value);
+        public readonly int CompareTo({scalar}<T> other) => Value.CompareTo(other.Value);
 
         public readonly string ToString(string? format, IFormatProvider? formatProvider) => Value is null ? string.Empty : Value.ToString(format, formatProvider);
 
@@ -685,65 +718,65 @@ namespace HyperJet
             return false;
         }}
 
-        public static DDScalar{n}<T> Parse(string s, IFormatProvider? provider) => new DDScalar{n}<T>(T.Parse(s, provider));
+        public static {scalar}<T> Parse(string s, IFormatProvider? provider) => new {scalar}<T>(T.Parse(s, provider));
 
-        public static bool TryParse(string? s, IFormatProvider? provider, out DDScalar{n}<T> result)
+        public static bool TryParse(string? s, IFormatProvider? provider, out {scalar}<T> result)
         {{
             if (T.TryParse(s, provider, out T? val))
             {{
-                result = new DDScalar{n}<T>(val);
+                result = new {scalar}<T>(val);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static DDScalar{n}<T> Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => new DDScalar{n}<T>(T.Parse(s, provider));
+        public static {scalar}<T> Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => new {scalar}<T>(T.Parse(s, provider));
 
-        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out DDScalar{n}<T> result)
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out {scalar}<T> result)
         {{
             if (T.TryParse(s, provider, out T? val))
             {{
-                result = new DDScalar{n}<T>(val);
+                result = new {scalar}<T>(val);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static DDScalar{n}<T> Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider) => new DDScalar{n}<T>(T.Parse(utf8Text, provider));
+        public static {scalar}<T> Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider) => new {scalar}<T>(T.Parse(utf8Text, provider));
 
-        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider, out DDScalar{n}<T> result)
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider, out {scalar}<T> result)
         {{
             if (T.TryParse(utf8Text, provider, out T? val))
             {{
-                result = new DDScalar{n}<T>(val);
+                result = new {scalar}<T>(val);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static DDScalar{n}<T> Parse(string s, NumberStyles style, IFormatProvider? provider) => new DDScalar{n}<T>(T.Parse(s, style, provider));
+        public static {scalar}<T> Parse(string s, NumberStyles style, IFormatProvider? provider) => new {scalar}<T>(T.Parse(s, style, provider));
 
-        public static DDScalar{n}<T> Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) => new DDScalar{n}<T>(T.Parse(s, style, provider));
+        public static {scalar}<T> Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) => new {scalar}<T>(T.Parse(s, style, provider));
 
-        public static bool TryParse(string? s, NumberStyles style, IFormatProvider? provider, out DDScalar{n}<T> result)
+        public static bool TryParse(string? s, NumberStyles style, IFormatProvider? provider, out {scalar}<T> result)
         {{
             if (T.TryParse(s, style, provider, out T? val))
             {{
-                result = new DDScalar{n}<T>(val);
+                result = new {scalar}<T>(val);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, out DDScalar{n}<T> result)
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, out {scalar}<T> result)
         {{
             if (T.TryParse(s, style, provider, out T? val))
             {{
-                result = new DDScalar{n}<T>(val);
+                result = new {scalar}<T>(val);
                 return true;
             }}
             result = default;
@@ -798,56 +831,56 @@ namespace HyperJet
         // A conversion between TOther and the coefficient type T needs the same two-step fallback
         // INumberBase.CreateChecked performs: ask the destination first, then the source. Neither
         // side handles the case TOther == T — CreateChecked normally short-circuits that itself, and
-        // here it does not, because the nominal destination is DDScalar{n}<T> rather than T.
-        public static bool TryConvertFromChecked<TOther>(TOther value, out DDScalar{n}<T> result) where TOther : INumberBase<TOther>
+        // here it does not, because the nominal destination is {scalar}<T> rather than T.
+        public static bool TryConvertFromChecked<TOther>(TOther value, out {scalar}<T> result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
-                result = new DDScalar{n}<T>((T)(object)value!);
+                result = new {scalar}<T>((T)(object)value!);
                 return true;
             }}
             if (TryConvertFromCheckedHelper<T, TOther>(value, out T inner) || TryConvertToCheckedHelper<TOther, T>(value, out inner))
             {{
-                result = new DDScalar{n}<T>(inner);
+                result = new {scalar}<T>(inner);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static bool TryConvertFromSaturating<TOther>(TOther value, out DDScalar{n}<T> result) where TOther : INumberBase<TOther>
+        public static bool TryConvertFromSaturating<TOther>(TOther value, out {scalar}<T> result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
-                result = new DDScalar{n}<T>((T)(object)value!);
+                result = new {scalar}<T>((T)(object)value!);
                 return true;
             }}
             if (TryConvertFromSaturatingHelper<T, TOther>(value, out T inner) || TryConvertToSaturatingHelper<TOther, T>(value, out inner))
             {{
-                result = new DDScalar{n}<T>(inner);
+                result = new {scalar}<T>(inner);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static bool TryConvertFromTruncating<TOther>(TOther value, out DDScalar{n}<T> result) where TOther : INumberBase<TOther>
+        public static bool TryConvertFromTruncating<TOther>(TOther value, out {scalar}<T> result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
-                result = new DDScalar{n}<T>((T)(object)value!);
+                result = new {scalar}<T>((T)(object)value!);
                 return true;
             }}
             if (TryConvertFromTruncatingHelper<T, TOther>(value, out T inner) || TryConvertToTruncatingHelper<TOther, T>(value, out inner))
             {{
-                result = new DDScalar{n}<T>(inner);
+                result = new {scalar}<T>(inner);
                 return true;
             }}
             result = default;
             return false;
         }}
 
-        public static bool TryConvertToChecked<TOther>(DDScalar{n}<T> value, out TOther result) where TOther : INumberBase<TOther>
+        public static bool TryConvertToChecked<TOther>({scalar}<T> value, out TOther result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
@@ -858,7 +891,7 @@ namespace HyperJet
                 || TryConvertToCheckedHelper<T, TOther>(value.Value, out result);
         }}
 
-        public static bool TryConvertToSaturating<TOther>(DDScalar{n}<T> value, out TOther result) where TOther : INumberBase<TOther>
+        public static bool TryConvertToSaturating<TOther>({scalar}<T> value, out TOther result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
@@ -869,7 +902,7 @@ namespace HyperJet
                 || TryConvertToSaturatingHelper<T, TOther>(value.Value, out result);
         }}
 
-        public static bool TryConvertToTruncating<TOther>(DDScalar{n}<T> value, out TOther result) where TOther : INumberBase<TOther>
+        public static bool TryConvertToTruncating<TOther>({scalar}<T> value, out TOther result) where TOther : INumberBase<TOther>
         {{
             if (typeof(TOther) == typeof(T))
             {{
@@ -880,45 +913,45 @@ namespace HyperJet
                 || TryConvertToTruncatingHelper<T, TOther>(value.Value, out result);
         }}
 
-        public static DDScalar{n}<T> Abs(DDScalar{n}<T> value) => value.Value < T.Zero ? -value : value;
+        public static {scalar}<T> Abs({scalar}<T> value) => value.Value < T.Zero ? -value : value;
 
-        public static bool IsCanonical(DDScalar{n}<T> value) => IsCanonicalHelper(value.Value);
-        public static bool IsComplexNumber(DDScalar{n}<T> value) => false;
-        public static bool IsImaginaryNumber(DDScalar{n}<T> value) => false;
-        public static bool IsEvenInteger(DDScalar{n}<T> value) => T.IsEvenInteger(value.Value);
-        public static bool IsOddInteger(DDScalar{n}<T> value) => T.IsOddInteger(value.Value);
-        public static bool IsFinite(DDScalar{n}<T> value) => T.IsFinite(value.Value);
-        public static bool IsInfinity(DDScalar{n}<T> value) => T.IsInfinity(value.Value);
-        public static bool IsInteger(DDScalar{n}<T> value) => T.IsInteger(value.Value);
-        public static bool IsNaN(DDScalar{n}<T> value) => T.IsNaN(value.Value);
-        public static bool IsNegative(DDScalar{n}<T> value) => T.IsNegative(value.Value);
-        public static bool IsNegativeInfinity(DDScalar{n}<T> value) => T.IsNegativeInfinity(value.Value);
-        public static bool IsNormal(DDScalar{n}<T> value) => T.IsNormal(value.Value);
-        public static bool IsPositive(DDScalar{n}<T> value) => T.IsPositive(value.Value);
-        public static bool IsPositiveInfinity(DDScalar{n}<T> value) => T.IsPositiveInfinity(value.Value);
-        public static bool IsRealNumber(DDScalar{n}<T> value) => T.IsRealNumber(value.Value);
-        public static bool IsSubnormal(DDScalar{n}<T> value) => T.IsSubnormal(value.Value);
-        public static bool IsZero(DDScalar{n}<T> value) => IsZeroHelper(value.Value);
+        public static bool IsCanonical({scalar}<T> value) => IsCanonicalHelper(value.Value);
+        public static bool IsComplexNumber({scalar}<T> value) => false;
+        public static bool IsImaginaryNumber({scalar}<T> value) => false;
+        public static bool IsEvenInteger({scalar}<T> value) => T.IsEvenInteger(value.Value);
+        public static bool IsOddInteger({scalar}<T> value) => T.IsOddInteger(value.Value);
+        public static bool IsFinite({scalar}<T> value) => T.IsFinite(value.Value);
+        public static bool IsInfinity({scalar}<T> value) => T.IsInfinity(value.Value);
+        public static bool IsInteger({scalar}<T> value) => T.IsInteger(value.Value);
+        public static bool IsNaN({scalar}<T> value) => T.IsNaN(value.Value);
+        public static bool IsNegative({scalar}<T> value) => T.IsNegative(value.Value);
+        public static bool IsNegativeInfinity({scalar}<T> value) => T.IsNegativeInfinity(value.Value);
+        public static bool IsNormal({scalar}<T> value) => T.IsNormal(value.Value);
+        public static bool IsPositive({scalar}<T> value) => T.IsPositive(value.Value);
+        public static bool IsPositiveInfinity({scalar}<T> value) => T.IsPositiveInfinity(value.Value);
+        public static bool IsRealNumber({scalar}<T> value) => T.IsRealNumber(value.Value);
+        public static bool IsSubnormal({scalar}<T> value) => T.IsSubnormal(value.Value);
+        public static bool IsZero({scalar}<T> value) => IsZeroHelper(value.Value);
 
-        public static DDScalar{n}<T> MaxMagnitude(DDScalar{n}<T> x, DDScalar{n}<T> y) => T.Abs(x.Value) >= T.Abs(y.Value) ? x : y;
+        public static {scalar}<T> MaxMagnitude({scalar}<T> x, {scalar}<T> y) => T.Abs(x.Value) >= T.Abs(y.Value) ? x : y;
 
-        public static DDScalar{n}<T> MaxMagnitudeNumber(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> MaxMagnitudeNumber({scalar}<T> x, {scalar}<T> y)
         {{
             if (T.IsNaN(x.Value)) return y;
             if (T.IsNaN(y.Value)) return x;
             return MaxMagnitude(x, y);
         }}
 
-        public static DDScalar{n}<T> MinMagnitude(DDScalar{n}<T> x, DDScalar{n}<T> y) => T.Abs(x.Value) < T.Abs(y.Value) ? x : y;
+        public static {scalar}<T> MinMagnitude({scalar}<T> x, {scalar}<T> y) => T.Abs(x.Value) < T.Abs(y.Value) ? x : y;
 
-        public static DDScalar{n}<T> MinMagnitudeNumber(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> MinMagnitudeNumber({scalar}<T> x, {scalar}<T> y)
         {{
             if (T.IsNaN(x.Value)) return y;
             if (T.IsNaN(y.Value)) return x;
             return MinMagnitude(x, y);
         }}
 
-        public static DDScalar{n}<T> Clamp(DDScalar{n}<T> value, DDScalar{n}<T> min, DDScalar{n}<T> max)
+        public static {scalar}<T> Clamp({scalar}<T> value, {scalar}<T> min, {scalar}<T> max)
         {{
             if (min > max) throw new ArgumentException(""min cannot be greater than max"");
             if (value < min) return min;
@@ -926,37 +959,37 @@ namespace HyperJet
             return value;
         }}
 
-        public static DDScalar{n}<T> Max(DDScalar{n}<T> x, DDScalar{n}<T> y) => x > y ? x : y;
+        public static {scalar}<T> Max({scalar}<T> x, {scalar}<T> y) => x > y ? x : y;
 
-        public static DDScalar{n}<T> Min(DDScalar{n}<T> x, DDScalar{n}<T> y) => x < y ? x : y;
+        public static {scalar}<T> Min({scalar}<T> x, {scalar}<T> y) => x < y ? x : y;
 
-        public static DDScalar{n}<T> MaxNumber(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> MaxNumber({scalar}<T> x, {scalar}<T> y)
         {{
             if (T.IsNaN(x.Value)) return y;
             if (T.IsNaN(y.Value)) return x;
             return x > y ? x : y;
         }}
 
-        public static DDScalar{n}<T> MinNumber(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> MinNumber({scalar}<T> x, {scalar}<T> y)
         {{
             if (T.IsNaN(x.Value)) return y;
             if (T.IsNaN(y.Value)) return x;
             return x < y ? x : y;
         }}
 
-        public static DDScalar{n}<T> Sign(DDScalar{n}<T> value) => new DDScalar{n}<T>(T.CreateChecked(T.Sign(value.Value)));
+        public static {scalar}<T> Sign({scalar}<T> value) => new {scalar}<T>(T.CreateChecked(T.Sign(value.Value)));
 
-        public static DDScalar{n}<T> CopySign(DDScalar{n}<T> value, DDScalar{n}<T> sign)
+        public static {scalar}<T> CopySign({scalar}<T> value, {scalar}<T> sign)
         {{
             return T.IsNegative(sign.Value) ? -Abs(value) : Abs(value);
         }}
 
-        public static DDScalar{n}<T> Round(DDScalar{n}<T> x) => new DDScalar{n}<T>(T.Round(x.Value));
-        public static DDScalar{n}<T> Round(DDScalar{n}<T> x, int digits, MidpointRounding mode) => new DDScalar{n}<T>(T.Round(x.Value, digits, mode));
-        public static DDScalar{n}<T> Round(DDScalar{n}<T> x, MidpointRounding mode) => new DDScalar{n}<T>(T.Round(x.Value, mode));
-        public static DDScalar{n}<T> Floor(DDScalar{n}<T> x) => new DDScalar{n}<T>(T.Floor(x.Value));
-        public static DDScalar{n}<T> Ceiling(DDScalar{n}<T> x) => new DDScalar{n}<T>(T.Ceiling(x.Value));
-        public static DDScalar{n}<T> Truncate(DDScalar{n}<T> x) => new DDScalar{n}<T>(T.Truncate(x.Value));
+        public static {scalar}<T> Round({scalar}<T> x) => new {scalar}<T>(T.Round(x.Value));
+        public static {scalar}<T> Round({scalar}<T> x, int digits, MidpointRounding mode) => new {scalar}<T>(T.Round(x.Value, digits, mode));
+        public static {scalar}<T> Round({scalar}<T> x, MidpointRounding mode) => new {scalar}<T>(T.Round(x.Value, mode));
+        public static {scalar}<T> Floor({scalar}<T> x) => new {scalar}<T>(T.Floor(x.Value));
+        public static {scalar}<T> Ceiling({scalar}<T> x) => new {scalar}<T>(T.Ceiling(x.Value));
+        public static {scalar}<T> Truncate({scalar}<T> x) => new {scalar}<T>(T.Truncate(x.Value));
 
         public readonly int GetExponentByteCount()
         {{
@@ -1009,189 +1042,174 @@ namespace HyperJet
 
         #region Trigonometric Functions
 
-        public static DDScalar{n}<T> Sin(DDScalar{n}<T> x)
+        public static {scalar}<T> Sin({scalar}<T> x)
         {{
             T f = T.Sin(x.Value);
             T da = T.Cos(x.Value);
-            T daa = -f;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-f")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Cos(DDScalar{n}<T> x)
+        public static {scalar}<T> Cos({scalar}<T> x)
         {{
             T f = T.Cos(x.Value);
             T da = -T.Sin(x.Value);
-            T daa = -f;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-f")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Tan(DDScalar{n}<T> x)
+        public static {scalar}<T> Tan({scalar}<T> x)
         {{
             T f = T.Tan(x.Value);
             T da = f * f + T.One;
-            T daa = da * T.CreateChecked(2.0) * f;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "da * T.CreateChecked(2.0) * f")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Asin(DDScalar{n}<T> x)
+        public static {scalar}<T> Asin({scalar}<T> x)
         {{
             T f = T.Asin(x.Value);
             T tmp = T.One - x.Value * x.Value;
             T da = T.One / T.Sqrt(tmp);
-            T daa = da * x.Value / tmp;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "da * x.Value / tmp")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Acos(DDScalar{n}<T> x)
+        public static {scalar}<T> Acos({scalar}<T> x)
         {{
             T f = T.Acos(x.Value);
             T tmp = T.One - x.Value * x.Value;
             T da = -T.One / T.Sqrt(tmp);
-            T daa = da * x.Value / tmp;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "da * x.Value / tmp")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Atan(DDScalar{n}<T> x)
+        public static {scalar}<T> Atan({scalar}<T> x)
         {{
             T f = T.Atan(x.Value);
             T da = T.One / (x.Value * x.Value + T.One);
-            T daa = -da * da * T.CreateChecked(2.0) * x.Value;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da * da * T.CreateChecked(2.0) * x.Value")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Atan2(DDScalar{n}<T> y, DDScalar{n}<T> x)
+        public static {scalar}<T> Atan2({scalar}<T> y, {scalar}<T> x)
         {{
             T tmp = y.Value * y.Value + x.Value * x.Value;
             T f = T.Atan2(y.Value, x.Value);
             T da = x.Value / tmp;
             T db = -y.Value / tmp;
-            T daa = db * da * T.CreateChecked(2.0);
-            T dab = db * db - da * da;
-            T dbb = -daa;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "db * da * T.CreateChecked(2.0)")}{D2("dab", "db * db - da * da")}{D2("dbb", "-daa")}
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>>(
                 y.AsReadOnlySpan(), x.AsReadOnlySpan(), f,
-                new ValueCoeff<T>(da), new ValueCoeff<T>(db), new ValueCoeff<T>(daa), new ValueCoeff<T>(dab), new ValueCoeff<T>(dbb),
+                new ValueCoeff<T>(da), new ValueCoeff<T>(db), {A2("new ValueCoeff<T>(daa)")}, {A2("new ValueCoeff<T>(dab)")}, {A2("new ValueCoeff<T>(dbb)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static (DDScalar{n}<T> Sin, DDScalar{n}<T> Cos) SinCos(DDScalar{n}<T> x)
+        public static ({scalar}<T> Sin, {scalar}<T> Cos) SinCos({scalar}<T> x)
         {{
             return (Sin(x), Cos(x));
         }}
 
-        public static DDScalar{n}<T> SinPi(DDScalar{n}<T> a)
+        public static {scalar}<T> SinPi({scalar}<T> a)
         {{
             T f = T.Sin(T.Pi * a.Value);
             T da = T.Pi * T.Cos(T.Pi * a.Value);
-            T daa = -T.Pi * T.Pi * f;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-T.Pi * T.Pi * f")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> CosPi(DDScalar{n}<T> a)
+        public static {scalar}<T> CosPi({scalar}<T> a)
         {{
             T f = T.Cos(T.Pi * a.Value);
             T da = -T.Pi * T.Sin(T.Pi * a.Value);
-            T daa = -T.Pi * T.Pi * f;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-T.Pi * T.Pi * f")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> TanPi(DDScalar{n}<T> a)
+        public static {scalar}<T> TanPi({scalar}<T> a)
         {{
             T f = T.Tan(T.Pi * a.Value);
             T da = T.Pi * (f * f + T.One);
-            T daa = T.CreateChecked(2.0) * T.Pi * f * da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "T.CreateChecked(2.0) * T.Pi * f * da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static (DDScalar{n}<T> SinPi, DDScalar{n}<T> CosPi) SinCosPi(DDScalar{n}<T> x)
+        public static ({scalar}<T> SinPi, {scalar}<T> CosPi) SinCosPi({scalar}<T> x)
         {{
             return (SinPi(x), CosPi(x));
         }}
 
-        public static DDScalar{n}<T> AtanPi(DDScalar{n}<T> a)
+        public static {scalar}<T> AtanPi({scalar}<T> a)
         {{
             T f = T.Atan(a.Value) / T.Pi;
             T da = T.One / (T.Pi * (a.Value * a.Value + T.One));
-            T daa = -T.CreateChecked(2.0) * a.Value * T.Pi * da * da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-T.CreateChecked(2.0) * a.Value * T.Pi * da * da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Atan2Pi(DDScalar{n}<T> y, DDScalar{n}<T> x)
+        public static {scalar}<T> Atan2Pi({scalar}<T> y, {scalar}<T> x)
         {{
             return Atan2(y, x) / T.Pi;
         }}
 
-        public static DDScalar{n}<T> AsinPi(DDScalar{n}<T> a)
+        public static {scalar}<T> AsinPi({scalar}<T> a)
         {{
             T f = T.Asin(a.Value) / T.Pi;
             T tmp = T.One - a.Value * a.Value;
             T da = T.One / (T.Pi * T.Sqrt(tmp));
-            T daa = a.Value * da / tmp;
-            DDScalar{n}<T> result = default;
+{D2("daa", "a.Value * da / tmp")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> AcosPi(DDScalar{n}<T> a)
+        public static {scalar}<T> AcosPi({scalar}<T> a)
         {{
             T f = T.Acos(a.Value) / T.Pi;
             T tmp = T.One - a.Value * a.Value;
             T da = -T.One / (T.Pi * T.Sqrt(tmp));
-            T daa = a.Value * da / tmp;
-            DDScalar{n}<T> result = default;
+{D2("daa", "a.Value * da / tmp")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
@@ -1200,53 +1218,49 @@ namespace HyperJet
 
         #region Exponential Functions
 
-        public static DDScalar{n}<T> Exp(DDScalar{n}<T> x)
+        public static {scalar}<T> Exp({scalar}<T> x)
         {{
             T f = T.Exp(x.Value);
             T da = f;
-            T daa = f;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "f")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Exp10(DDScalar{n}<T> a)
+        public static {scalar}<T> Exp10({scalar}<T> a)
         {{
             T f = T.Exp10(a.Value);
             T ln10 = T.Log(T.CreateChecked(10.0));
             T da = f * ln10;
-            T daa = da * ln10;
-            DDScalar{n}<T> result = default;
+{D2("daa", "da * ln10")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Exp2(DDScalar{n}<T> a)
+        public static {scalar}<T> Exp2({scalar}<T> a)
         {{
             T f = T.Exp2(a.Value);
             T ln2 = T.Log(T.CreateChecked(2.0));
             T da = f * ln2;
-            T daa = da * ln2;
-            DDScalar{n}<T> result = default;
+{D2("daa", "da * ln2")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> ExpM1(DDScalar{n}<T> a)
+        public static {scalar}<T> ExpM1({scalar}<T> a)
         {{
             T f = T.ExpM1(a.Value);
             T da = f + T.One;
-            T daa = da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
@@ -1255,56 +1269,52 @@ namespace HyperJet
 
         #region Logarithmic Functions
 
-        public static DDScalar{n}<T> Log(DDScalar{n}<T> a)
+        public static {scalar}<T> Log({scalar}<T> a)
         {{
             T f = T.Log(a.Value);
             T da = T.One / a.Value;
-            T daa = -da * da;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da * da")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Log(DDScalar{n}<T> x, DDScalar{n}<T> newBase) => Log(x) / Log(newBase);
+        public static {scalar}<T> Log({scalar}<T> x, {scalar}<T> newBase) => Log(x) / Log(newBase);
 
-        public static DDScalar{n}<T> Log10(DDScalar{n}<T> a)
+        public static {scalar}<T> Log10({scalar}<T> a)
         {{
             T f = T.Log10(a.Value);
             T ln10 = T.Log(T.CreateChecked(10.0));
             T da = T.One / (a.Value * ln10);
-            T daa = -da / a.Value;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da / a.Value")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Log2(DDScalar{n}<T> a)
+        public static {scalar}<T> Log2({scalar}<T> a)
         {{
             T f = T.Log2(a.Value);
             T ln2 = T.Log(T.CreateChecked(2.0));
             T da = T.One / (a.Value * ln2);
-            T daa = -da / a.Value;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da / a.Value")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> LogP1(DDScalar{n}<T> a)
+        public static {scalar}<T> LogP1({scalar}<T> a)
         {{
             T f = T.LogP1(a.Value);
             T da = T.One / (a.Value + T.One);
-            T daa = -da * da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da * da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
@@ -1313,74 +1323,68 @@ namespace HyperJet
 
         #region Hyperbolic Functions
 
-        public static DDScalar{n}<T> Sinh(DDScalar{n}<T> a)
+        public static {scalar}<T> Sinh({scalar}<T> a)
         {{
             T f = T.Sinh(a.Value);
             T da = T.Cosh(a.Value);
-            T daa = f;
-            DDScalar{n}<T> result = default;
+{D2("daa", "f")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Cosh(DDScalar{n}<T> a)
+        public static {scalar}<T> Cosh({scalar}<T> a)
         {{
             T f = T.Cosh(a.Value);
             T da = T.Sinh(a.Value);
-            T daa = f;
-            DDScalar{n}<T> result = default;
+{D2("daa", "f")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Tanh(DDScalar{n}<T> a)
+        public static {scalar}<T> Tanh({scalar}<T> a)
         {{
             T f = T.Tanh(a.Value);
             T da = T.One - f * f;
-            T daa = -T.CreateChecked(2.0) * f * da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "-T.CreateChecked(2.0) * f * da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Asinh(DDScalar{n}<T> a)
+        public static {scalar}<T> Asinh({scalar}<T> a)
         {{
             T f = T.Asinh(a.Value);
             T da = T.One / T.Sqrt(a.Value * a.Value + T.One);
-            T daa = -a.Value * da / (a.Value * a.Value + T.One);
-            DDScalar{n}<T> result = default;
+{D2("daa", "-a.Value * da / (a.Value * a.Value + T.One)")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Acosh(DDScalar{n}<T> a)
+        public static {scalar}<T> Acosh({scalar}<T> a)
         {{
             T f = T.Acosh(a.Value);
             T da = T.One / T.Sqrt(a.Value * a.Value - T.One);
-            T daa = -a.Value * da / (a.Value * a.Value - T.One);
-            DDScalar{n}<T> result = default;
+{D2("daa", "-a.Value * da / (a.Value * a.Value - T.One)")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Atanh(DDScalar{n}<T> a)
+        public static {scalar}<T> Atanh({scalar}<T> a)
         {{
             T f = T.Atanh(a.Value);
             T da = T.One / (T.One - a.Value * a.Value);
-            T daa = T.CreateChecked(2.0) * a.Value * da * da;
-            DDScalar{n}<T> result = default;
+{D2("daa", "T.CreateChecked(2.0) * a.Value * da * da")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
@@ -1389,77 +1393,67 @@ namespace HyperJet
 
         #region Power & Root Functions
 
-        public static DDScalar{n}<T> Pow(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> Pow({scalar}<T> x, {scalar}<T> y)
         {{
             T f = T.Pow(x.Value, y.Value);
             T logX = T.Log(x.Value);
             T da = y.Value * T.Pow(x.Value, y.Value - T.One);
             T db = f * logX;
-            T daa = y.Value * (y.Value - T.One) * T.Pow(x.Value, y.Value - T.CreateChecked(2.0));
-            T dab = T.Pow(x.Value, y.Value - T.One) * (T.One + y.Value * logX);
-            T dbb = db * logX;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "y.Value * (y.Value - T.One) * T.Pow(x.Value, y.Value - T.CreateChecked(2.0))")}{D2("dab", "T.Pow(x.Value, y.Value - T.One) * (T.One + y.Value * logX)")}{D2("dbb", "db * logX")}
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>>(
                 x.AsReadOnlySpan(), y.AsReadOnlySpan(), f,
-                new ValueCoeff<T>(da), new ValueCoeff<T>(db), new ValueCoeff<T>(daa), new ValueCoeff<T>(dab), new ValueCoeff<T>(dbb),
+                new ValueCoeff<T>(da), new ValueCoeff<T>(db), {A2("new ValueCoeff<T>(daa)")}, {A2("new ValueCoeff<T>(dab)")}, {A2("new ValueCoeff<T>(dbb)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Sqrt(DDScalar{n}<T> x)
+        public static {scalar}<T> Sqrt({scalar}<T> x)
         {{
             T f = T.Sqrt(x.Value);
             T da = T.One / (T.CreateChecked(2.0) * f);
-            T daa = -da / (T.CreateChecked(2.0) * x.Value);
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "-da / (T.CreateChecked(2.0) * x.Value)")}
+            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                x.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Hypot(DDScalar{n}<T> x, DDScalar{n}<T> y)
+        public static {scalar}<T> Hypot({scalar}<T> x, {scalar}<T> y)
         {{
             T f = T.Sqrt(x.Value * x.Value + y.Value * y.Value);
-            T f3 = f * f * f;
-            T da = x.Value / f;
+{D2("f3", "f * f * f")}            T da = x.Value / f;
             T db = y.Value / f;
-            T daa = y.Value * y.Value / f3;
-            T dab = -x.Value * y.Value / f3;
-            T dbb = x.Value * x.Value / f3;
-
-            DDScalar{n}<T> result = default;
+{D2("daa", "y.Value * y.Value / f3")}{D2("dab", "-x.Value * y.Value / f3")}{D2("dbb", "x.Value * x.Value / f3")}
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>, ValueCoeff<T>>(
                 x.AsReadOnlySpan(), y.AsReadOnlySpan(), f,
-                new ValueCoeff<T>(da), new ValueCoeff<T>(db), new ValueCoeff<T>(daa), new ValueCoeff<T>(dab), new ValueCoeff<T>(dbb),
+                new ValueCoeff<T>(da), new ValueCoeff<T>(db), {A2("new ValueCoeff<T>(daa)")}, {A2("new ValueCoeff<T>(dab)")}, {A2("new ValueCoeff<T>(dbb)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> Cbrt(DDScalar{n}<T> a)
+        public static {scalar}<T> Cbrt({scalar}<T> a)
         {{
             T f = T.Cbrt(a.Value);
             T da = T.One / (T.CreateChecked(3.0) * f * f);
-            T daa = -T.CreateChecked(2.0) * da / (T.CreateChecked(3.0) * a.Value);
-            DDScalar{n}<T> result = default;
+{D2("daa", "-T.CreateChecked(2.0) * da / (T.CreateChecked(3.0) * a.Value)")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
 
-        public static DDScalar{n}<T> RootN(DDScalar{n}<T> a, int n)
+        public static {scalar}<T> RootN({scalar}<T> a, int n)
         {{
             if (n == 0) throw new ArgumentException(""n cannot be zero"", nameof(n));
             T nT = T.CreateChecked(n);
             T f = T.Pow(a.Value, T.One / nT);
             T da = f / (nT * a.Value);
-            T daa = (T.One - nT) * da / (nT * a.Value);
-            DDScalar{n}<T> result = default;
+{D2("daa", "(T.One - nT) * da / (nT * a.Value)")}            {scalar}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
-                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), {A2("new ValueCoeff<T>(daa)")},
                 result.AsSpan(), Size, Order);
             return result;
         }}
@@ -1474,11 +1468,11 @@ namespace HyperJet
         /// derivatives are exact regardless: d/dx = y, d/dy = x, d/dz = 1, and the only non-zero
         /// second derivative is the mixed d2/dxdy = 1.
         /// </summary>
-        public static DDScalar{n}<T> FusedMultiplyAdd(DDScalar{n}<T> x, DDScalar{n}<T> y, DDScalar{n}<T> z)
+        public static {scalar}<T> FusedMultiplyAdd({scalar}<T> x, {scalar}<T> y, {scalar}<T> z)
         {{
             T f = T.FusedMultiplyAdd(x.Value, y.Value, z.Value);
 
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Ternary<T, FalseTag,
                 ValueCoeff<T>, ValueCoeff<T>, OneCoeff<T>,
                 ZeroCoeff<T>, OneCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
@@ -1494,12 +1488,12 @@ namespace HyperJet
         /// nearest integer with ties to even. Same function as <c>Math.IEEERemainder</c>, under the
         /// name generic math uses. Piecewise linear, so both second derivatives vanish.
         /// </summary>
-        public static DDScalar{n}<T> Ieee754Remainder(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        public static {scalar}<T> Ieee754Remainder({scalar}<T> a, {scalar}<T> b)
         {{
             T quotient = T.Round(a.Value / b.Value, MidpointRounding.ToEven);
             T f = T.Ieee754Remainder(a.Value, b.Value);
 
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
             Kernel.Binary<T, FalseTag, OneCoeff<T>, ValueCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
                 a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
                 default, new ValueCoeff<T>(-quotient), default, default, default,
@@ -1515,9 +1509,9 @@ namespace HyperJet
         /// those of <c>x</c> itself — unlike <c>Round</c> or <c>Floor</c>, which are piecewise
         /// constant and therefore return a derivative-free value. Only the value moves.
         /// </remarks>
-        public static DDScalar{n}<T> BitIncrement(DDScalar{n}<T> x)
+        public static {scalar}<T> BitIncrement({scalar}<T> x)
         {{
-            DDScalar{n}<T> result = x;
+            {scalar}<T> result = x;
             result.Value = T.BitIncrement(x.Value);
             return result;
         }}
@@ -1526,24 +1520,24 @@ namespace HyperJet
         /// The next representable value below <paramref name=""x""/>. Derivatives are preserved, for
         /// the reason given on <see cref=""BitIncrement""/>.
         /// </summary>
-        public static DDScalar{n}<T> BitDecrement(DDScalar{n}<T> x)
+        public static {scalar}<T> BitDecrement({scalar}<T> x)
         {{
-            DDScalar{n}<T> result = x;
+            {scalar}<T> result = x;
             result.Value = T.BitDecrement(x.Value);
             return result;
         }}
 
         /// <summary>The base-2 exponent of the value. Integer-valued, so there is nothing to differentiate.</summary>
-        public static int ILogB(DDScalar{n}<T> x) => T.ILogB(x.Value);
+        public static int ILogB({scalar}<T> x) => T.ILogB(x.Value);
 
         /// <summary>
         /// Multiplies by <c>2^n</c>. This is an exact linear scaling, so every coefficient scales
         /// with it; applying <c>ScaleB</c> per coefficient keeps that exact instead of routing it
         /// through a multiplication by a computed power of two.
         /// </summary>
-        public static DDScalar{n}<T> ScaleB(DDScalar{n}<T> x, int n)
+        public static {scalar}<T> ScaleB({scalar}<T> x, int n)
         {{
-            DDScalar{n}<T> result = default;
+            {scalar}<T> result = default;
 
             ReadOnlySpan<T> source = x.AsReadOnlySpan();
             Span<T> destination = result.AsSpan();
@@ -1562,16 +1556,45 @@ namespace HyperJet
 
         public override string ToString()
         {{
-            return $""{{Value}} [g: ({gradientText}), H: ({hessianText})]"";
+            return $""{{Value}} [g: ({gradientText}){hessianText}]"";
         }}
     }}
-
-    [InlineArray({dataLength})]
-    public struct Buffer{dataLength}<T>
-    {{
-        private T _element0;
-    }}
 }}";
+        }
+
+        /// <summary>
+        /// The inline-array backing types, emitted once for the whole compilation. The two families
+        /// share data lengths -- a first-order scalar of two variables and a second-order scalar of
+        /// one both need three slots -- so each length must be defined exactly once.
+        /// </summary>
+        private static string GenerateBuffers()
+        {
+            var lengths = new SortedSet<int>();
+            for (int n = 1; n <= 15; n++)
+            {
+                lengths.Add(n + 1);
+                lengths.Add((n + 1) * (n + 2) / 2);
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("// <auto-generated />");
+            sb.AppendLine("using System.Runtime.CompilerServices;");
+            sb.AppendLine();
+            sb.AppendLine("namespace HyperJet");
+            sb.AppendLine("{");
+
+            foreach (int length in lengths)
+            {
+                sb.AppendLine($"    [InlineArray({length})]");
+                sb.AppendLine($"    public struct Buffer{length}<T>");
+                sb.AppendLine("    {");
+                sb.AppendLine("        private T _element0;");
+                sb.AppendLine("    }");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("}");
+            return sb.ToString();
         }
     }
 }
