@@ -41,6 +41,51 @@ namespace HyperJet.Tests
                 .Select(m => m.Name)
                 .ToHashSet();
 
+        /// <summary>
+        /// The surface a caller sees for <see cref="DDScalarSpan"/>: its own instance methods plus the
+        /// <see cref="HyperJetMath"/> statics that take one. A ref struct cannot be returned from a
+        /// static factory, so operations that produce a scalar are instance methods with a
+        /// destination, while pure queries are statics — both count.
+        /// </summary>
+        private static HashSet<string> SpanSurface()
+        {
+            var names = InstanceNames(typeof(DDScalarSpan));
+            names.UnionWith(StaticNames(typeof(HyperJetMath), typeof(DDScalarSpan)));
+            return names;
+        }
+
+        /// <summary>
+        /// Helpers that are not generic-math functions: selection, sign, rounding, classification and
+        /// the IEEE bit operations. Constants are excluded on purpose — a runtime-sized scalar cannot
+        /// offer <c>Pi</c> as a property, and <c>Constant(Math.PI, size)</c> already says it.
+        /// </summary>
+        private static readonly string[] ExpectedValueHelpers =
+        {
+            "Min", "Max", "MinMagnitude", "MaxMagnitude",
+            "MinNumber", "MaxNumber", "MinMagnitudeNumber", "MaxMagnitudeNumber", "Clamp",
+            "Sign", "CopySign",
+            "Round", "Floor", "Ceiling", "Truncate",
+            "BitIncrement", "BitDecrement", "ILogB", "ScaleB",
+            "IsCanonical", "IsComplexNumber", "IsEvenInteger", "IsFinite", "IsImaginaryNumber",
+            "IsInfinity", "IsInteger", "IsNaN", "IsNegative", "IsNegativeInfinity", "IsNormal",
+            "IsOddInteger", "IsPositive", "IsPositiveInfinity", "IsRealNumber", "IsSubnormal", "IsZero",
+        };
+
+        [Theory]
+        [MemberData(nameof(Dimensions))]
+        public void GeneratedStruct_ProvidesTheValueHelpers(int n)
+        {
+            Type closed = ClosedStruct(n);
+            AssertCovers($"DDScalar{n}<double>", StaticNames(closed, closed), ExpectedValueHelpers);
+        }
+
+        [Fact]
+        public void DynamicModels_ProvideTheValueHelpers()
+        {
+            AssertCovers("HyperJetMath (DDScalar)", StaticNames(typeof(HyperJetMath), typeof(DDScalar)), ExpectedValueHelpers);
+            AssertCovers("DDScalarSpan", SpanSurface(), ExpectedValueHelpers);
+        }
+
         /// <summary>The closed type <c>DDScalar{n}&lt;double&gt;</c> for every generated dimension.</summary>
         private static Type ClosedStruct(int n) =>
             Type.GetType($"HyperJet.DDScalar{n}`1, HyperJet")!.MakeGenericType(typeof(double));
@@ -98,7 +143,7 @@ namespace HyperJet.Tests
         [Fact]
         public void DDScalarSpan_ProvidesTheFullVocabulary()
         {
-            AssertCovers("DDScalarSpan", InstanceNames(typeof(DDScalarSpan)));
+            AssertCovers("DDScalarSpan", SpanSurface());
         }
 
         /// <summary>
@@ -129,9 +174,12 @@ namespace HyperJet.Tests
             }
         }
 
-        private static void AssertCovers(string model, HashSet<string> available)
+        private static void AssertCovers(string model, HashSet<string> available) =>
+            AssertCovers(model, available, ExpectedFunctions);
+
+        private static void AssertCovers(string model, HashSet<string> available, string[] expected)
         {
-            string[] missing = ExpectedFunctions.Where(name => !available.Contains(name)).ToArray();
+            string[] missing = expected.Where(name => !available.Contains(name)).ToArray();
 
             Assert.True(missing.Length == 0, $"{model} is missing: {string.Join(", ", missing)}");
         }

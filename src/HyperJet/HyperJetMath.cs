@@ -586,6 +586,317 @@ namespace HyperJet
         }
 
         #endregion
+
+        #region Value-Level Helpers
+
+        // IsCanonical, IsComplexNumber, IsImaginaryNumber and IsZero are explicit INumberBase
+        // implementations on double and cannot be called as double.IsX(...); a constrained type
+        // parameter reaches them.
+        private static bool IsCanonicalHelper<T>(T v) where T : INumberBase<T> => T.IsCanonical(v);
+        private static bool IsComplexNumberHelper<T>(T v) where T : INumberBase<T> => T.IsComplexNumber(v);
+        private static bool IsImaginaryNumberHelper<T>(T v) where T : INumberBase<T> => T.IsImaginaryNumber(v);
+        private static bool IsZeroHelper<T>(T v) where T : INumberBase<T> => T.IsZero(v);
+
+        /// <summary>
+        /// A fresh scalar holding the same coefficients. Selection helpers copy rather than hand back
+        /// an operand, because <see cref="DDScalar"/> shares its buffer between struct copies and
+        /// every other operation in the library returns an independent result.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static DDScalar CopyOf(in DDScalar a)
+        {
+            DDScalar result = new DDScalar(a.Size, a.Order);
+            a.AsReadOnlySpan().CopyTo(result.AsSpan());
+            return result;
+        }
+
+        /// <summary>A constant carrying <paramref name="value"/> and no derivatives.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static DDScalar ConstantLike(in DDScalar a, double value) => DDScalar.Constant(value, a.Size, a.Order);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void CheckSameShape(in DDScalar a, in DDScalar b, string what)
+        {
+            if (a.Size != b.Size || a.Order != b.Order)
+                throw new InvalidOperationException($"Incompatible sizes or orders for {what}.");
+        }
+
+        /// <summary>Selects an operand by value and returns a copy of it, derivatives included.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Min(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "Min");
+            return CopyOf(x.Value < y.Value ? x : y);
+        }
+
+        /// <summary>Selects an operand by value and returns a copy of it, derivatives included.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Max(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "Max");
+            return CopyOf(x.Value > y.Value ? x : y);
+        }
+
+        /// <summary>Selects an operand by value and returns a copy of it, derivatives included.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MinMagnitude(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MinMagnitude");
+            return CopyOf(Math.Abs(x.Value) < Math.Abs(y.Value) ? x : y);
+        }
+
+        /// <summary>Selects an operand by value and returns a copy of it, derivatives included.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MaxMagnitude(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MaxMagnitude");
+            return CopyOf(Math.Abs(x.Value) >= Math.Abs(y.Value) ? x : y);
+        }
+
+        /// <summary>As <see cref="Min"/>, but a NaN operand loses against a number.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MinNumber(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MinNumber");
+            if (double.IsNaN(x.Value)) return CopyOf(y);
+            if (double.IsNaN(y.Value)) return CopyOf(x);
+            return Min(x, y);
+        }
+
+        /// <summary>As <see cref="Max"/>, but a NaN operand loses against a number.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MaxNumber(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MaxNumber");
+            if (double.IsNaN(x.Value)) return CopyOf(y);
+            if (double.IsNaN(y.Value)) return CopyOf(x);
+            return Max(x, y);
+        }
+
+        /// <summary>As <see cref="MinMagnitude"/>, but a NaN operand loses against a number.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MinMagnitudeNumber(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MinMagnitudeNumber");
+            if (double.IsNaN(x.Value)) return CopyOf(y);
+            if (double.IsNaN(y.Value)) return CopyOf(x);
+            return MinMagnitude(x, y);
+        }
+
+        /// <summary>As <see cref="MaxMagnitude"/>, but a NaN operand loses against a number.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar MaxMagnitudeNumber(in DDScalar x, in DDScalar y)
+        {
+            CheckSameShape(x, y, "MaxMagnitudeNumber");
+            if (double.IsNaN(x.Value)) return CopyOf(y);
+            if (double.IsNaN(y.Value)) return CopyOf(x);
+            return MaxMagnitude(x, y);
+        }
+
+        /// <summary>Selects value, min or max and returns a copy of it, derivatives included.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Clamp(in DDScalar value, in DDScalar min, in DDScalar max)
+        {
+            CheckSameShape(value, min, "Clamp");
+            CheckSameShape(value, max, "Clamp");
+            if (min.Value > max.Value) throw new ArgumentException("min cannot be greater than max");
+
+            if (value.Value < min.Value) return CopyOf(min);
+            if (value.Value > max.Value) return CopyOf(max);
+            return CopyOf(value);
+        }
+
+        /// <summary>The sign as -1, 0 or 1. Piecewise constant, so the result carries no derivatives.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Sign(in DDScalar value) => ConstantLike(value, Math.Sign(value.Value));
+
+        /// <summary>The magnitude of <paramref name="value"/> with the sign of <paramref name="sign"/>.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar CopySign(in DDScalar value, in DDScalar sign)
+        {
+            CheckSameShape(value, sign, "CopySign");
+            return double.IsNegative(sign.Value) ? -Abs(value) : Abs(value);
+        }
+
+        // Rounding is piecewise constant, so away from the break points the derivative is zero
+        // and the result is a constant.
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Round(in DDScalar x) => ConstantLike(x, Math.Round(x.Value));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Round(in DDScalar x, int digits, MidpointRounding mode) => ConstantLike(x, Math.Round(x.Value, digits, mode));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Round(in DDScalar x, MidpointRounding mode) => ConstantLike(x, Math.Round(x.Value, mode));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Floor(in DDScalar x) => ConstantLike(x, Math.Floor(x.Value));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Ceiling(in DDScalar x) => ConstantLike(x, Math.Ceiling(x.Value));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar Truncate(in DDScalar x) => ConstantLike(x, Math.Truncate(x.Value));
+
+        /// <summary>
+        /// The neighbouring representable value. Within a binade the step is a constant, so this is
+        /// <c>x + c</c> and the derivatives survive it — unlike the piecewise-constant rounding above.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar BitIncrement(in DDScalar x)
+        {
+            DDScalar result = CopyOf(x);
+            result.Value = double.BitIncrement(x.Value);
+            return result;
+        }
+
+        /// <summary>The next representable value below, keeping the derivatives.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar BitDecrement(in DDScalar x)
+        {
+            DDScalar result = CopyOf(x);
+            result.Value = double.BitDecrement(x.Value);
+            return result;
+        }
+
+        /// <summary>The base-2 exponent of the value.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ILogB(in DDScalar x) => double.ILogB(x.Value);
+
+        /// <summary>
+        /// Multiplies by <c>2^n</c>. Linear, so every coefficient scales with it; using ScaleB per
+        /// coefficient keeps the scaling exact.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DDScalar ScaleB(in DDScalar x, int n)
+        {
+            DDScalar result = new DDScalar(x.Size, x.Order);
+
+            ReadOnlySpan<double> source = x.AsReadOnlySpan();
+            Span<double> destination = result.AsSpan();
+
+            for (int i = 0; i < source.Length; i++) destination[i] = Math.ScaleB(source[i], n);
+
+            return result;
+        }
+
+        // Classification looks only at the value; the derivatives cannot change the answer.
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsCanonical(in DDScalar x) => IsCanonicalHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsComplexNumber(in DDScalar x) => IsComplexNumberHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsEvenInteger(in DDScalar x) => double.IsEvenInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsFinite(in DDScalar x) => double.IsFinite(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsImaginaryNumber(in DDScalar x) => IsImaginaryNumberHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInfinity(in DDScalar x) => double.IsInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInteger(in DDScalar x) => double.IsInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNaN(in DDScalar x) => double.IsNaN(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNegative(in DDScalar x) => double.IsNegative(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNegativeInfinity(in DDScalar x) => double.IsNegativeInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNormal(in DDScalar x) => double.IsNormal(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsOddInteger(in DDScalar x) => double.IsOddInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsPositive(in DDScalar x) => double.IsPositive(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsPositiveInfinity(in DDScalar x) => double.IsPositiveInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsRealNumber(in DDScalar x) => double.IsRealNumber(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsSubnormal(in DDScalar x) => double.IsSubnormal(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsZero(in DDScalar x) => IsZeroHelper(x.Value);
+
+        #endregion
+
+        #region DDScalarSpan Queries
+
+        // Classification and the exponent are plain value queries, so they live here as statics for
+        // both dynamic models rather than as instance methods on one of them.
+
+        /// <summary>The base-2 exponent of the value.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ILogB(in DDScalarSpan x) => double.ILogB(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsCanonical(in DDScalarSpan x) => IsCanonicalHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsComplexNumber(in DDScalarSpan x) => IsComplexNumberHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsEvenInteger(in DDScalarSpan x) => double.IsEvenInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsFinite(in DDScalarSpan x) => double.IsFinite(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsImaginaryNumber(in DDScalarSpan x) => IsImaginaryNumberHelper(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInfinity(in DDScalarSpan x) => double.IsInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInteger(in DDScalarSpan x) => double.IsInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNaN(in DDScalarSpan x) => double.IsNaN(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNegative(in DDScalarSpan x) => double.IsNegative(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNegativeInfinity(in DDScalarSpan x) => double.IsNegativeInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsNormal(in DDScalarSpan x) => double.IsNormal(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsOddInteger(in DDScalarSpan x) => double.IsOddInteger(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsPositive(in DDScalarSpan x) => double.IsPositive(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsPositiveInfinity(in DDScalarSpan x) => double.IsPositiveInfinity(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsRealNumber(in DDScalarSpan x) => double.IsRealNumber(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsSubnormal(in DDScalarSpan x) => double.IsSubnormal(x.Value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsZero(in DDScalarSpan x) => IsZeroHelper(x.Value);
+
+        #endregion
     }
 
     /// <summary>
