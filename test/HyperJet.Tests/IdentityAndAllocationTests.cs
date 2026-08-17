@@ -127,6 +127,15 @@ namespace HyperJet.Tests
             AssertIdentical("Abs", Abs(-positive), DD2.Abs(-positive));
         }
 
+        /// <remarks>
+        /// The measurement asks whether the <em>marginal</em> allocation is zero, not whether the
+        /// first measured block is. Entering a hot loop for the first time costs a couple of
+        /// kilobytes of one-time runtime bookkeeping (tiered JIT, on-stack replacement) that
+        /// <see cref="GC.GetAllocatedBytesForCurrentThread"/> attributes to this thread, and how much
+        /// of it lands inside the measured window depends on the machine. A genuine per-operation
+        /// allocation would show up in every block, so requiring one block of exactly zero bytes is
+        /// both strict and immune to JIT timing.
+        /// </remarks>
         [Fact]
         public void DDScalarSpan_ZeroAllocationMethods_DoNotAllocate()
         {
@@ -141,47 +150,54 @@ namespace HyperJet.Tests
             var b = DDScalarSpan.Variable(bBuffer, 1, 2.7, size, order);
             var dest = new DDScalarSpan(destBuffer, size, order);
 
-            // Warm up so JIT compilation is not counted.
-            for (int i = 0; i < 3; i++)
+            long[] measured = new long[Attempts];
+
+            for (int attempt = 0; attempt < Attempts; attempt++)
             {
-                a.Multiply(b, dest);
-                a.Divide(b, dest);
-                a.Sin(dest);
-                a.Exp(dest);
-                a.Sqrt(dest);
-                a.Hypot(b, dest);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+
+                for (int i = 0; i < BlockSize; i++)
+                {
+                    a.Multiply(b, dest);
+                    a.Divide(b, dest);
+                    a.Sin(dest);
+                    a.Exp(dest);
+                    a.Sqrt(dest);
+                    a.Hypot(b, dest);
+                }
+
+                measured[attempt] = GC.GetAllocatedBytesForCurrentThread() - before;
+                if (measured[attempt] == 0) return;
             }
 
-            long before = GC.GetAllocatedBytesForCurrentThread();
-
-            for (int i = 0; i < 1000; i++)
-            {
-                a.Multiply(b, dest);
-                a.Divide(b, dest);
-                a.Sin(dest);
-                a.Exp(dest);
-                a.Sqrt(dest);
-                a.Hypot(b, dest);
-            }
-
-            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            Assert.Equal(0, allocated);
+            Assert.Fail(Diagnosis("DDScalarSpan", measured));
         }
 
         [Fact]
         public void DDScalarN_Arithmetic_DoesNotAllocate()
         {
             var (x, y) = DD2.Variables(3.0, 6.0);
+            long[] measured = new long[Attempts];
 
-            for (int i = 0; i < 3; i++) Consume((x * y) / (x - y) + DD2.Sin(x) * DD2.Exp(y));
+            for (int attempt = 0; attempt < Attempts; attempt++)
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
 
-            long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int i = 0; i < BlockSize; i++) Consume((x * y) / (x - y) + DD2.Sin(x) * DD2.Exp(y));
 
-            for (int i = 0; i < 1000; i++) Consume((x * y) / (x - y) + DD2.Sin(x) * DD2.Exp(y));
+                measured[attempt] = GC.GetAllocatedBytesForCurrentThread() - before;
+                if (measured[attempt] == 0) return;
+            }
 
-            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            Assert.Equal(0, allocated);
+            Assert.Fail(Diagnosis("DDScalar2<double>", measured));
         }
+
+        private const int BlockSize = 1000;
+        private const int Attempts = 10;
+
+        private static string Diagnosis(string what, long[] measured) =>
+            $"{what} kept allocating: {Attempts} blocks of {BlockSize} iterations measured " +
+            $"{string.Join(", ", measured)} bytes, none of them zero.";
 
         private static double _sink;
 
