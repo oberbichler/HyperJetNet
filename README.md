@@ -131,6 +131,25 @@ Console.WriteLine($"Z-torque: {torqueZ.Value}");                        // 20.0
 Console.WriteLine($"Lever-arm sensitivity on Z-torque: {torqueZ.G(0)}"); // 10.0
 ```
 
+### 4. Local Quadratic Model with `Evaluate`
+
+Gradient and Hessian are rarely the end goal — usually you want the quadratic model they define, to take a trust-region step or probe a line search. `Evaluate` applies it directly, on every model:
+
+```csharp
+using HyperJet;
+
+var (x, y) = DDScalar2<double>.Variables(1.0, 2.0);
+DDScalar2<double> f = x * x + 3.0 * x * y + y * y;
+
+// f(x + d) = f(x) + grad(f) . d + 1/2 d^T H d
+Console.WriteLine($"f at the expansion point: {f.Value}");     // 11.0
+Console.WriteLine($"model at d = (0.1, -0.2): {f.Evaluate(0.1, -0.2)}"); // 10.39
+
+// For a quadratic the expansion is exact, so this really is f(1.1, 1.8).
+```
+
+The offsets can also be passed as a span (`f.Evaluate(d)`), which is what the dynamic `DDScalar` and the zero-allocation `DDScalarSpan` use. First-order scalars evaluate the linear model instead.
+
 ---
 
 ## Performance & Benchmarks

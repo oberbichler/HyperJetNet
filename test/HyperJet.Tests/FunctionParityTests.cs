@@ -100,6 +100,34 @@ namespace HyperJet.Tests
             AssertCovers("DDScalarSpan", InstanceNames(typeof(DDScalarSpan)));
         }
 
+        /// <summary>
+        /// Members that are not generic-math functions but still have to exist on every model.
+        /// <c>Evaluate</c> is here because it was already lost once: it existed in the T4-generated
+        /// code and disappeared in the refactoring without anything noticing.
+        /// </summary>
+        [Fact]
+        public void EveryModel_ExposesTheInstanceLevelMembers()
+        {
+            string[] expected = { "Evaluate", "G", "H", "GetGradient", "GetHessian", "AsSpan", "AsReadOnlySpan" };
+
+            var surfaces = new List<(string Name, HashSet<string> Members)>
+            {
+                ("DDScalar", InstanceNames(typeof(DDScalar))),
+                ("DDScalarSpan", InstanceNames(typeof(DDScalarSpan))),
+            };
+
+            for (int n = 1; n <= 15; n++)
+            {
+                surfaces.Add(($"DDScalar{n}<double>", InstanceNames(ClosedStruct(n))));
+            }
+
+            foreach (var (name, members) in surfaces)
+            {
+                string[] missing = expected.Where(m => !members.Contains(m)).ToArray();
+                Assert.True(missing.Length == 0, $"{name} is missing: {string.Join(", ", missing)}");
+            }
+        }
+
         private static void AssertCovers(string model, HashSet<string> available)
         {
             string[] missing = ExpectedFunctions.Where(name => !available.Contains(name)).ToArray();
