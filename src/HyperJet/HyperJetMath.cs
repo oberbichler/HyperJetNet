@@ -756,7 +756,7 @@ namespace HyperJet
         public static DDScalar BitIncrement(in DDScalar x)
         {
             DDScalar result = CopyOf(x);
-            result.Value = double.BitIncrement(x.Value);
+            result.AsSpan()[0] = double.BitIncrement(x.Value);
             return result;
         }
 
@@ -765,7 +765,7 @@ namespace HyperJet
         public static DDScalar BitDecrement(in DDScalar x)
         {
             DDScalar result = CopyOf(x);
-            result.Value = double.BitDecrement(x.Value);
+            result.AsSpan()[0] = double.BitDecrement(x.Value);
             return result;
         }
 
