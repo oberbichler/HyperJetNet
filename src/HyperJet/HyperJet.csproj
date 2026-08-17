@@ -12,10 +12,12 @@
     <PackageLicenseExpression>ISC</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>automatic-differentiation dual-numbers math derivatives gradient hessian ad simd arm-neon zero-allocation</PackageTags>
-    <RepositoryType>git</RepositoryType>
-    <RepositoryUrl>https://github.com/thomas/hyperjet-net</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/oberbichler/HyperJetNet</PackageProjectUrl>
 
-    <!-- SourceLink and debugging support -->
+    <!-- SourceLink and debugging support.
+         RepositoryUrl and RepositoryType are deliberately not set here: PublishRepositoryUrl lets
+         SourceLink derive them from the git remote, so the package metadata cannot drift away from
+         the actual repository the way a hard-coded URL did. -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
