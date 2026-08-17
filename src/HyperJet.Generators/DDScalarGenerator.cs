@@ -167,6 +167,13 @@ namespace HyperJet.Generators
 
             var variableNames = GetVariableNames(n);
 
+            // ToString has to enumerate this dimension's coefficients. Spelling it out for two
+            // variables made DDScalar1 throw from G(1) and every dimension above two print a
+            // truncated gradient and Hessian.
+            string gradientText = string.Join(", ", Enumerable.Range(0, n).Select(i => $"{{G({i})}}"));
+            string hessianText = string.Join(", ", Enumerable.Range(0, n).Select(i =>
+                "(" + string.Join(", ", Enumerable.Range(0, n).Select(j => $"{{H({i}, {j})}}")) + ")"));
+
             // A fixed-arity companion to Evaluate(ReadOnlySpan<T>), so that passing the wrong number
             // of offsets to a compile-time-sized scalar is a compile error rather than a throw. The
             // span local makes the target overload unambiguous; it is stack-allocated.
@@ -1555,7 +1562,7 @@ namespace HyperJet
 
         public override string ToString()
         {{
-            return $""{{Value}} [g: ({{G(0)}}, {{G(1)}}), H: (({{H(0, 0)}}, {{H(0, 1)}}), ({{H(1, 0)}}, {{H(1, 1)}}))]"";
+            return $""{{Value}} [g: ({gradientText}), H: ({hessianText})]"";
         }}
     }}
 
