@@ -27,6 +27,7 @@ namespace HyperJet.Tests
             "Log", "Log2", "Log10", "LogP1",
             "Sinh", "Cosh", "Tanh", "Asinh", "Acosh", "Atanh",
             "Pow", "Sqrt", "Cbrt", "RootN", "Hypot", "Abs",
+            "FusedMultiplyAdd", "Ieee754Remainder",
         };
 
         private static HashSet<string> StaticNames(Type type, Type argument) =>

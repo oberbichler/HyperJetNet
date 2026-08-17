@@ -102,6 +102,12 @@ namespace HyperJet.Generators
                 sb.AppendLine($"        public static {type} RootN<T>(in {type} a, int n) {where} => {type}.RootN(a, n);");
                 sb.AppendLine();
                 sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                sb.AppendLine($"        public static {type} Ieee754Remainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
+                sb.AppendLine();
+                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                sb.AppendLine($"        public static {type} FusedMultiplyAdd<T>(in {type} x, in {type} y, in {type} z) {where} => {type}.FusedMultiplyAdd(x, y, z);");
+                sb.AppendLine();
+                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
                 sb.AppendLine($"        public static ({type} Sin, {type} Cos) SinCos<T>(in {type} a) {where} => {type}.SinCos(a);");
                 sb.AppendLine();
                 sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
@@ -1440,6 +1446,49 @@ namespace HyperJet
             DDScalar{n}<T> result = default;
             Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(
                 a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),
+                result.AsSpan(), Size, Order);
+            return result;
+        }}
+
+        #endregion
+
+        #region IEEE 754 Operations
+
+        /// <summary>
+        /// Computes <c>(x * y) + z</c> with a single rounding of the value, the way
+        /// <c>IFloatingPointIeee754.FusedMultiplyAdd</c> specifies. The form is bilinear, so its
+        /// derivatives are exact regardless: d/dx = y, d/dy = x, d/dz = 1, and the only non-zero
+        /// second derivative is the mixed d2/dxdy = 1.
+        /// </summary>
+        public static DDScalar{n}<T> FusedMultiplyAdd(DDScalar{n}<T> x, DDScalar{n}<T> y, DDScalar{n}<T> z)
+        {{
+            T f = T.FusedMultiplyAdd(x.Value, y.Value, z.Value);
+
+            DDScalar{n}<T> result = default;
+            Kernel.Ternary<T, FalseTag,
+                ValueCoeff<T>, ValueCoeff<T>, OneCoeff<T>,
+                ZeroCoeff<T>, OneCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
+                x.AsReadOnlySpan(), y.AsReadOnlySpan(), z.AsReadOnlySpan(), f,
+                new ValueCoeff<T>(y.Value), new ValueCoeff<T>(x.Value), default,
+                default, default, default, default, default, default,
+                result.AsSpan(), Size, Order);
+            return result;
+        }}
+
+        /// <summary>
+        /// The IEEE 754 remainder <c>a - b * q</c>, where <c>q</c> is <c>a / b</c> rounded to the
+        /// nearest integer with ties to even. Same function as <c>Math.IEEERemainder</c>, under the
+        /// name generic math uses. Piecewise linear, so both second derivatives vanish.
+        /// </summary>
+        public static DDScalar{n}<T> Ieee754Remainder(DDScalar{n}<T> a, DDScalar{n}<T> b)
+        {{
+            T quotient = T.Round(a.Value / b.Value, MidpointRounding.ToEven);
+            T f = T.Ieee754Remainder(a.Value, b.Value);
+
+            DDScalar{n}<T> result = default;
+            Kernel.Binary<T, FalseTag, OneCoeff<T>, ValueCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>, ZeroCoeff<T>>(
+                a.AsReadOnlySpan(), b.AsReadOnlySpan(), f,
+                default, new ValueCoeff<T>(-quotient), default, default, default,
                 result.AsSpan(), Size, Order);
             return result;
         }}
