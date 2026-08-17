@@ -160,6 +160,22 @@ namespace HyperJet.Generators
             int dataLength = (n + 1) * (n + 2) / 2;
 
             var variableNames = GetVariableNames(n);
+
+            // A fixed-arity companion to Evaluate(ReadOnlySpan<T>), so that passing the wrong number
+            // of offsets to a compile-time-sized scalar is a compile error rather than a throw. The
+            // span local makes the target overload unambiguous; it is stack-allocated.
+            var offsetParameters = string.Join(", ", Enumerable.Range(0, n).Select(i => $"T d{i}"));
+            var offsetElements = string.Join(", ", Enumerable.Range(0, n).Select(i => $"d{i}"));
+            string evaluateOverload = $@"        /// <summary>
+        /// Evaluates the second-order Taylor expansion around the point this value was computed at.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T Evaluate({offsetParameters})
+        {{{{
+            ReadOnlySpan<T> d = [{offsetElements}];
+            return Evaluate(d);
+        }}}}";
+
             string variablesFactory;
             if (n == 1)
             {
@@ -306,6 +322,50 @@ namespace HyperJet
                     h[i, j] = H(i, j);
             return h;
         }}
+
+        /// <summary>
+        /// Evaluates the second-order Taylor expansion of the represented function around the point
+        /// it was evaluated at: <c>f(x + d) = f(x) + grad(f) . d + 1/2 d^T H d</c>.
+        /// </summary>
+        /// <param name=""d"">The offset from the expansion point, one component per variable.</param>
+        /// <remarks>
+        /// For a function that is itself quadratic the expansion is exact; otherwise the error is
+        /// O(|d|^3). This is the local quadratic model used by a trust-region step or a line search.
+        /// </remarks>
+        public readonly T Evaluate(params ReadOnlySpan<T> d)
+        {{
+            if (d.Length != Size)
+                throw new ArgumentException($""Expected {{Size}} offsets, got {{d.Length}}."", nameof(d));
+
+            ReadOnlySpan<T> data = AsReadOnlySpan();
+            T half = T.One / (T.One + T.One);
+
+            T result = data[0];
+
+            for (int i = 0; i < Size; i++)
+            {{
+                result += data[1 + i] * d[i];
+            }}
+
+            // The Hessian is stored as the upper triangle in row order, so a single pass reaches
+            // H[i,i] first and then H[i,j] for j > i. Each off-diagonal coefficient stands for two
+            // symmetric terms of the quadratic form, which is exactly what cancels the one half.
+            int k = 1 + Size;
+            for (int i = 0; i < Size; i++)
+            {{
+                T di = d[i];
+                result += half * data[k++] * di * di;
+
+                for (int j = i + 1; j < Size; j++)
+                {{
+                    result += data[k++] * di * d[j];
+                }}
+            }}
+
+            return result;
+        }}
+
+{evaluateOverload}
 
         #region Constructors and Factory Methods
 

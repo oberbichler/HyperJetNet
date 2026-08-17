@@ -116,6 +116,59 @@ namespace HyperJet
             return h;
         }
 
+        /// <summary>
+        /// Evaluates the Taylor expansion of the represented function around the point it was
+        /// evaluated at: <c>f(x + d) = f(x) + grad(f) . d + 1/2 d^T H d</c>.
+        /// </summary>
+        /// <param name="d">The offset from the expansion point, one component per variable.</param>
+        /// <remarks>
+        /// For a 1st-order scalar the quadratic term is absent and this is the linear model. For a
+        /// function that is itself quadratic the 2nd-order expansion is exact; otherwise the error
+        /// is O(|d|^3). This is the local model used by a trust-region step or a line search.
+        /// </remarks>
+        public readonly double Evaluate(params ReadOnlySpan<double> d)
+        {
+            if (_data == null) ThrowNull();
+            if (d.Length != _size)
+                throw new ArgumentException($"Expected {_size} offsets, got {d.Length}.", nameof(d));
+
+            return EvaluateTaylor(_data, d, _size, _order);
+        }
+
+        /// <summary>
+        /// Shared Taylor evaluation over the packed coefficient layout: value, gradient, then the
+        /// upper triangle of the Hessian in row order.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static double EvaluateTaylor(ReadOnlySpan<double> data, ReadOnlySpan<double> d, int size, int order)
+        {
+            double result = data[0];
+
+            for (int i = 0; i < size; i++)
+            {
+                result += data[1 + i] * d[i];
+            }
+
+            if (order < 2) return result;
+
+            // One pass over the stored triangle reaches H[i,i] first and then H[i,j] for j > i. Each
+            // off-diagonal coefficient stands for two symmetric terms of the quadratic form, which
+            // is exactly what cancels the one half.
+            int k = 1 + size;
+            for (int i = 0; i < size; i++)
+            {
+                double di = d[i];
+                result += 0.5 * data[k++] * di * di;
+
+                for (int j = i + 1; j < size; j++)
+                {
+                    result += data[k++] * di * d[j];
+                }
+            }
+
+            return result;
+        }
+
         #region Constructors and Factory Methods
 
         public DDScalar(int size, int order = 2)
