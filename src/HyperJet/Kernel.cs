@@ -12,26 +12,59 @@ namespace HyperJet
     /// </summary>
     public static class Kernel
     {
+        /// <summary>
+        /// The number of coefficients a scalar of this size and order stores: value and gradient at
+        /// order 1, plus the upper triangle of the Hessian at order 2.
+        /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// The size is negative, or the coefficient count would not fit in an <see cref="int"/>.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetDataLength(int size, int order)
         {
-            return order == 1 ? 1 + size : (size + 1) * (size + 2) / 2;
+            if (size < 0) throw new ArgumentOutOfRangeException(nameof(size));
+
+            if (order == 1) return 1 + size;
+
+            // In int arithmetic (size + 1) * (size + 2) overflows from size 46340 upwards, and the
+            // negative length that came out of it was handed straight to the caller to allocate from.
+            long length = (size + 1L) * (size + 2L) / 2L;
+
+            if (length > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size),
+                    $"A 2nd order scalar of size {size} would need {length} coefficients, which exceeds the maximum array length.");
+            }
+
+            return (int)length;
         }
 
+        /// <summary>
+        /// Recovers the size from a coefficient count, inverting <see cref="GetDataLength"/>. Useful
+        /// for rebuilding a scalar from a raw buffer obtained through <c>AsSpan</c>.
+        /// </summary>
+        /// <exception cref="ArgumentException">No size of this order produces that count.</exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetSizeFromDataLength(int length, int order)
         {
             if (order == 1)
             {
+                if (length < 1) throw new ArgumentException($"Invalid data length {length} for 1st order dual numbers.");
                 return length - 1;
             }
 
-            int s = (int)(Math.Sqrt(1 + 8 * length) - 3) / 2;
-            if (s < 0 || GetDataLength(s, order) != length)
+            // Inverting length = (s + 1)(s + 2) / 2. The square root only locates the candidate:
+            // 8 * length overflows int above a length of 268435455, and even in wider arithmetic the
+            // result can land just under the exact integer. Both are avoided by computing in double
+            // and confirming the candidate against the forward formula, which is exact.
+            long candidate = (long)((Math.Sqrt(1.0 + 8.0 * length) - 3.0) / 2.0);
+
+            for (long s = Math.Max(0, candidate - 1); s <= candidate + 1; s++)
             {
-                throw new ArgumentException($"Invalid data length {length} for 2nd order dual numbers.");
+                if ((s + 1) * (s + 2) / 2 == length) return (int)s;
             }
-            return s;
+
+            throw new ArgumentException($"Invalid data length {length} for 2nd order dual numbers.");
         }
 
         #region Double Overloads (Backward Compatibility)
