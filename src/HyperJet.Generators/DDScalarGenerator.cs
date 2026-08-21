@@ -74,85 +74,85 @@ namespace HyperJet.Generators
             sb.AppendLine("    {");
 
             foreach (string family in new[] { "DDScalar", "DScalar" })
-            for (int n = 1; n <= 15; n++)
-            {
-                string type = $"{family}{n}<T>";
-                const string where = "where T : IFloatingPointIeee754<T>";
-
-                sb.AppendLine($"        #region {family}{n} Functions");
-                sb.AppendLine();
-
-                foreach (string name in UnaryFunctions)
+                for (int n = 1; n <= 15; n++)
                 {
+                    string type = $"{family}{n}<T>";
+                    const string where = "where T : IFloatingPointIeee754<T>";
+
+                    sb.AppendLine($"        #region {family}{n} Functions");
+                    sb.AppendLine();
+
+                    foreach (string name in UnaryFunctions)
+                    {
+                        sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                        sb.AppendLine($"        public static {type} {name}<T>(in {type} a) {where} => {type}.{name}(a);");
+                        sb.AppendLine();
+                    }
+
                     sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                    sb.AppendLine($"        public static {type} {name}<T>(in {type} a) {where} => {type}.{name}(a);");
+                    sb.AppendLine($"        public static {type} Atan2<T>(in {type} y, in {type} x) {where} => {type}.Atan2(y, x);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Atan2Pi<T>(in {type} y, in {type} x) {where} => {type}.Atan2Pi(y, x);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Hypot<T>(in {type} a, in {type} b) {where} => {type}.Hypot(a, b);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Log<T>(in {type} a, in {type} newBase) {where} => {type}.Log(a, newBase);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Pow<T>(in {type} a, in {type} b) {where} => {type}.Pow(a, b);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} RootN<T>(in {type} a, int n) {where} => {type}.RootN(a, n);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Ieee754Remainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
+                    sb.AppendLine();
+                    sb.AppendLine("        /// <summary>");
+                    sb.AppendLine("        /// Identical to <c>Ieee754Remainder</c>. .NET carries this function under two names --");
+                    sb.AppendLine("        /// <c>Math.IEEERemainder</c> predates the naming guideline that gave the generic-math");
+                    sb.AppendLine("        /// surface <c>Ieee754Remainder</c> -- and this facade mirrors <c>System.Math</c>, so it");
+                    sb.AppendLine("        /// offers the spelling a caller coming from there will reach for.");
+                    sb.AppendLine("        /// </summary>");
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} IEEERemainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} FusedMultiplyAdd<T>(in {type} x, in {type} y, in {type} z) {where} => {type}.FusedMultiplyAdd(x, y, z);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static ({type} Sin, {type} Cos) SinCos<T>(in {type} a) {where} => {type}.SinCos(a);");
+                    sb.AppendLine();
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static ({type} SinPi, {type} CosPi) SinCosPi<T>(in {type} a) {where} => {type}.SinCosPi(a);");
+                    sb.AppendLine();
+
+                    // A constant exponent never needs log(a), so unlike the two-operand overload this
+                    // one also works for a negative base.
+                    sb.AppendLine("        /// <summary>");
+                    sb.AppendLine("        /// Raises <paramref name=\"a\"/> to a constant power. Unlike the two-operand overload this");
+                    sb.AppendLine("        /// never evaluates <c>log(a)</c>, so it also works for a negative base.");
+                    sb.AppendLine("        /// </summary>");
+                    sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"        public static {type} Pow<T>(in {type} a, T b) {where}");
+                    sb.AppendLine("        {");
+                    sb.AppendLine("            T two = T.One + T.One;");
+                    sb.AppendLine("            T f = T.Pow(a.Value, b);");
+                    sb.AppendLine("            T da = b * T.Pow(a.Value, b - T.One);");
+                    sb.AppendLine("            T daa = (b - T.One) * b * T.Pow(a.Value, b - two);");
+                    sb.AppendLine();
+                    sb.AppendLine($"            {type} result = default;");
+                    sb.AppendLine("            Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(");
+                    sb.AppendLine("                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),");
+                    sb.AppendLine($"                result.AsSpan(), {type}.Size, {type}.Order);");
+                    sb.AppendLine("            return result;");
+                    sb.AppendLine("        }");
+                    sb.AppendLine();
+                    sb.AppendLine("        #endregion");
                     sb.AppendLine();
                 }
-
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Atan2<T>(in {type} y, in {type} x) {where} => {type}.Atan2(y, x);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Atan2Pi<T>(in {type} y, in {type} x) {where} => {type}.Atan2Pi(y, x);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Hypot<T>(in {type} a, in {type} b) {where} => {type}.Hypot(a, b);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Log<T>(in {type} a, in {type} newBase) {where} => {type}.Log(a, newBase);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Pow<T>(in {type} a, in {type} b) {where} => {type}.Pow(a, b);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} RootN<T>(in {type} a, int n) {where} => {type}.RootN(a, n);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Ieee754Remainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
-                sb.AppendLine();
-                sb.AppendLine("        /// <summary>");
-                sb.AppendLine("        /// Identical to <c>Ieee754Remainder</c>. .NET carries this function under two names --");
-                sb.AppendLine("        /// <c>Math.IEEERemainder</c> predates the naming guideline that gave the generic-math");
-                sb.AppendLine("        /// surface <c>Ieee754Remainder</c> -- and this facade mirrors <c>System.Math</c>, so it");
-                sb.AppendLine("        /// offers the spelling a caller coming from there will reach for.");
-                sb.AppendLine("        /// </summary>");
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} IEEERemainder<T>(in {type} a, in {type} b) {where} => {type}.Ieee754Remainder(a, b);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} FusedMultiplyAdd<T>(in {type} x, in {type} y, in {type} z) {where} => {type}.FusedMultiplyAdd(x, y, z);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static ({type} Sin, {type} Cos) SinCos<T>(in {type} a) {where} => {type}.SinCos(a);");
-                sb.AppendLine();
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static ({type} SinPi, {type} CosPi) SinCosPi<T>(in {type} a) {where} => {type}.SinCosPi(a);");
-                sb.AppendLine();
-
-                // A constant exponent never needs log(a), so unlike the two-operand overload this
-                // one also works for a negative base.
-                sb.AppendLine("        /// <summary>");
-                sb.AppendLine("        /// Raises <paramref name=\"a\"/> to a constant power. Unlike the two-operand overload this");
-                sb.AppendLine("        /// never evaluates <c>log(a)</c>, so it also works for a negative base.");
-                sb.AppendLine("        /// </summary>");
-                sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                sb.AppendLine($"        public static {type} Pow<T>(in {type} a, T b) {where}");
-                sb.AppendLine("        {");
-                sb.AppendLine("            T two = T.One + T.One;");
-                sb.AppendLine("            T f = T.Pow(a.Value, b);");
-                sb.AppendLine("            T da = b * T.Pow(a.Value, b - T.One);");
-                sb.AppendLine("            T daa = (b - T.One) * b * T.Pow(a.Value, b - two);");
-                sb.AppendLine();
-                sb.AppendLine($"            {type} result = default;");
-                sb.AppendLine("            Kernel.Unary<T, FalseTag, ValueCoeff<T>, ValueCoeff<T>>(");
-                sb.AppendLine("                a.AsReadOnlySpan(), f, new ValueCoeff<T>(da), new ValueCoeff<T>(daa),");
-                sb.AppendLine($"                result.AsSpan(), {type}.Size, {type}.Order);");
-                sb.AppendLine("            return result;");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-                sb.AppendLine("        #endregion");
-                sb.AppendLine();
-            }
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -166,7 +166,7 @@ namespace HyperJet.Generators
             if (n == 2) return new[] { "x", "y" };
             if (n == 3) return new[] { "x", "y", "z" };
             if (n == 4) return new[] { "x", "y", "z", "w" };
-            
+
             var names = new string[n];
             for (int i = 0; i < n; i++)
             {
