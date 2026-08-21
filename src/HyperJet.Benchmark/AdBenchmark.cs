@@ -5,7 +5,7 @@ using System;
 namespace HyperJet.Benchmark
 {
     [MemoryDiagnoser]
-    [SimpleJob(launchCount: 1, warmupCount: 2, iterationCount: 3)]
+    [SimpleJob(launchCount: 1, warmupCount: 1, iterationCount: 3)]
     public class AdBenchmark
     {
         private const double XVal = 3.0;
@@ -21,6 +21,17 @@ namespace HyperJet.Benchmark
             var (x, y) = DDScalar2<double>.Variables(XVal, YVal);
             DDScalar2<double> f = (x * y) / (x - y);
             return f.Value + f.G(0) + f.H(0, 1);
+        }
+
+        [Benchmark]
+        public double NestedFirstOrder_DScalar2()
+        {
+            var xInner = DScalar2<double>.Variable(0, XVal);
+            var yInner = DScalar2<double>.Variable(1, YVal);
+            var x = DScalar2<DScalar2<double>>.Variable(0, xInner);
+            var y = DScalar2<DScalar2<double>>.Variable(1, yInner);
+            DScalar2<DScalar2<double>> f = (x * y) / (x - y);
+            return f.Value.Value + f.Value.G(0) + f.G(0).G(1);
         }
 
         [Benchmark]
@@ -42,6 +53,17 @@ namespace HyperJet.Benchmark
             var y = DDScalar10<double>.Variable(1, YVal);
             DDScalar10<double> f = (x * y) / (x - y);
             return f.Value + f.G(0);
+        }
+
+        [Benchmark]
+        public double NestedFirstOrder_DScalar10()
+        {
+            var xInner = DScalar10<double>.Variable(0, XVal);
+            var yInner = DScalar10<double>.Variable(1, YVal);
+            var x = DScalar10<DScalar10<double>>.Variable(0, xInner);
+            var y = DScalar10<DScalar10<double>>.Variable(1, yInner);
+            DScalar10<DScalar10<double>> f = (x * y) / (x - y);
+            return f.Value.Value + f.Value.G(0);
         }
 
         [Benchmark]
