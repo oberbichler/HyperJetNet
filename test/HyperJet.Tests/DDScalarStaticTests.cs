@@ -225,19 +225,19 @@ namespace HyperJet.Tests
             Assert.Equal(9.0, vAdd.Z);
 
             double dot = Vector3D<double>.Dot(v1, v2);
-            Assert.Equal(1.0*4.0 + 2.0*5.0 + 3.0*6.0, dot); // 4 + 10 + 18 = 32
+            Assert.Equal(1.0 * 4.0 + 2.0 * 5.0 + 3.0 * 6.0, dot); // 4 + 10 + 18 = 32
 
             var cross = Vector3D<double>.Cross(v1, v2);
-            Assert.Equal(2.0*6.0 - 3.0*5.0, cross.X); // -3
-            Assert.Equal(3.0*4.0 - 1.0*6.0, cross.Y); // 6
-            Assert.Equal(1.0*5.0 - 2.0*4.0, cross.Z); // -3
+            Assert.Equal(2.0 * 6.0 - 3.0 * 5.0, cross.X); // -3
+            Assert.Equal(3.0 * 4.0 - 1.0 * 6.0, cross.Y); // 6
+            Assert.Equal(1.0 * 5.0 - 2.0 * 4.0, cross.Z); // -3
 
             // 2. Test with DDScalar3<double> to verify automatic differentiation on vectors
             var (x, y, z) = DDScalar3<double>.Variables(1.0, 2.0, 3.0);
             var u = new Vector3D<DDScalar3<double>>(x, y, z);
             var v = new Vector3D<DDScalar3<double>>(
-                DDScalar3<double>.Constant(4.0), 
-                DDScalar3<double>.Constant(5.0), 
+                DDScalar3<double>.Constant(4.0),
+                DDScalar3<double>.Constant(5.0),
                 DDScalar3<double>.Constant(6.0));
 
             // Dot product = x*4 + y*5 + z*6
