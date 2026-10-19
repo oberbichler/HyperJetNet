@@ -1,14 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     
     <!-- NuGet Metadata -->
     <PackageId>HyperJet</PackageId>
     <Version>1.0.0</Version>
-    <Description>A highly efficient, modern C# library for Automatic Differentiation (AD) of first and second order, optimized for .NET 10 with SIMD, source generators, and zero-allocation structures.</Description>
+    <Description>A highly efficient, modern C# library for Automatic Differentiation (AD) of first and second order, optimized for .NET 10 (also targets .NET 8) with SIMD, source generators, and zero-allocation structures.</Description>
     <PackageLicenseExpression>ISC</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>automatic-differentiation dual-numbers math derivatives gradient hessian ad simd arm-neon zero-allocation</PackageTags>

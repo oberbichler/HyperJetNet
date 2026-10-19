@@ -1,9 +1,9 @@
 # HyperJet
 
-[![.NET 10](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/)
+[![.NET 8 | 10](https://img.shields.io/badge/.NET-8.0%20%7C%2010.0-blue.svg)](https://dotnet.microsoft.com/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 
-**HyperJet** is a highly efficient, modern C# library for **Automatic Differentiation (AD)** of first and second order (gradients and Hessian matrices). Engineered from the ground up for **.NET 10** and modern CPU architectures, it combines maximum type safety with extreme mathematical performance through SIMD hardware acceleration, source generators, and zero-allocation stack structures.
+**HyperJet** is a highly efficient, modern C# library for **Automatic Differentiation (AD)** of first and second order (gradients and Hessian matrices). Engineered from the ground up for **.NET 10** (and also available for **.NET 8**) and modern CPU architectures, it combines maximum type safety with extreme mathematical performance through SIMD hardware acceleration, source generators, and zero-allocation stack structures.
 
 ---
 
@@ -45,7 +45,7 @@
 
 ## Installation
 
-Simply install the **HyperJet** NuGet package into your .NET 10 project:
+Simply install the **HyperJet** NuGet package into your .NET 8 or .NET 10 project:
 
 ```bash
 dotnet add package HyperJet
